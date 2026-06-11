@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Test</title>
+<script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+<style>
+body{font-family:sans-serif;padding:20px;background:#111;color:#fff}
+button{padding:16px 24px;font-size:18px;background:#3b82f6;color:#fff;border:none;border-radius:10px;width:100%}
+#log{margin-top:20px;font-size:14px;line-height:2;white-space:pre-wrap}
+</style>
+</head>
+<body>
+<button onclick="document.getElementById('f').click()">📂 Select xlsx file</button>
+<input type="file" id="f" accept=".xlsx" style="display:none">
+<div id="log">Waiting…</div>
+<script>
+function log(msg){ document.getElementById('log').textContent += '\n' + msg; }
+document.getElementById('f').addEventListener('change', function(){
+  const file = this.files[0];
+  if(!file){ log('No file'); return; }
+  log('File: ' + file.name + ' (' + Math.round(file.size/1024) + 'KB)');
+  const reader = new FileReader();
+  reader.onerror = () => log('FileReader error');
+  reader.onload = function(e){
+    log('FileReader done');
+    try {
+      log('Calling XLSX.read…');
+      const wb = XLSX.read(new Uint8Array(e.target.result), {type:'array', sheets:['📊 Summary']});
+      log('Sheets: ' + wb.SheetNames.join(', '));
+      const ws = wb.Sheets['📊 Summary'];
+      const v = ws['B20'] ? ws['B20'].v : 'not found';
+      log('Summary B20 (total portfolio): ' + v);
+      log('✅ SUCCESS');
+    } catch(err){
+      log('ERROR: ' + err.message);
+    }
+  };
+  reader.readAsArrayBuffer(file);
+});
+</script>
+</body>
+</html>
