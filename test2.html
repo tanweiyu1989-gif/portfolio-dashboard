@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>iOS File Test</title>
+<script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+<style>
+body{font-family:sans-serif;padding:16px;background:#111;color:#fff}
+button{display:block;padding:14px;font-size:16px;background:#3b82f6;color:#fff;border:none;border-radius:10px;width:100%;margin-bottom:10px}
+#log{font-size:12px;line-height:1.8;background:#1e222d;padding:12px;border-radius:8px;margin-top:10px;white-space:pre-wrap;word-break:break-all}
+input{display:none}
+</style>
+</head>
+<body>
+<button onclick="go()">📂 Select File</button>
+<input type="file" id="f" accept=".xlsx,.xls">
+<div id="log">Ready. Tap button above.</div>
+<script>
+const L = document.getElementById('log');
+function log(m){ L.textContent += '\n' + m; console.log(m); }
+function err(m){ L.textContent += '\n❌ ' + m; }
+function ok(m){  L.textContent += '\n✅ ' + m; }
+
+log('XLSX loaded: ' + (typeof XLSX !== 'undefined'));
+log('FileReader: ' + (typeof FileReader !== 'undefined'));
+log('fetch: ' + (typeof fetch !== 'undefined'));
+log('URL.createObjectURL: ' + (typeof URL.createObjectURL !== 'undefined'));
+
+function go(){
+  log('\nButton tapped');
+  document.getElementById('f').value='';
+  document.getElementById('f').click();
+}
+
+document.getElementById('f').onchange = function(){
+  const file = this.files[0];
+  if(!file){ err('No file'); return; }
+  ok('File selected: '+file.name+' ('+Math.round(file.size/1024)+'KB)');
+  
+  // Try ALL methods in sequence
+  tryMethod1(file);
+};
+
+function tryMethod1(file){
+  log('\nMethod 1: FileReader+ArrayBuffer');
+  try{
+    const r=new FileReader();
+    r.onerror=()=>{ err('M1 FileReader error'); tryMethod2(file); };
+    r.onabort=()=>{ err('M1 FileReader aborted'); tryMethod2(file); };
+    r.onload=e=>{
+      ok('M1 FileReader loaded: '+e.target.result.byteLength+' bytes');
+      tryXLSX(e.target.result,'array',file);
+    };
+    r.readAsArrayBuffer(file);
+    log('M1 readAsArrayBuffer called');
+  }catch(e){ err('M1 error: '+e.message); tryMethod2(file); }
+}
+
+function tryMethod2(file){
+  log('\nMethod 2: FileReader+BinaryString');
+  try{
+    const r=new FileReader();
+    r.onerror=()=>{ err('M2 error'); tryMethod3(file); };
+    r.onload=e=>{
+      ok('M2 loaded, length: '+e.target.result.length);
+      tryXLSXBinary(e.target.result,file);
+    };
+    r.readAsBinaryString(file);
+    log('M2 readAsBinaryString called');
+  }catch(e){ err('M2 error: '+e.message); tryMethod3(file); }
+}
+
+function tryMethod3(file){
+  log('\nMethod 3: fetch+blob');
+  try{
+    const url=URL.createObjectURL(file);
+    log('M3 blob URL: '+url.slice(0,30)+'...');
+    fetch(url)
+      .then(r=>{ log('M3 fetch ok, status:'+r.status); return r.arrayBuffer(); })
+      .then(buf=>{ ok('M3 buffer: '+buf.byteLength+' bytes'); tryXLSX(buf,'array',file); })
+      .catch(e=>{ err('M3 fetch error: '+e.message); tryMethod4(file); });
+  }catch(e){ err('M3 error: '+e.message); tryMethod4(file); }
+}
+
+function tryMethod4(file){
+  log('\nMethod 4: FileReader+DataURL');
+  try{
+    const r=new FileReader();
+    r.onerror=()=>err('M4 error');
+    r.onload=e=>{
+      ok('M4 dataURL loaded');
+      const b64=e.target.result.split(',')[1];
+      tryXLSXB64(b64,file);
+    };
+    r.readAsDataURL(file);
+    log('M4 readAsDataURL called');
+  }catch(e){ err('M4 error: '+e.message); }
+}
+
+function tryXLSX(buf,type,file){
+  log('Trying XLSX.read type:'+type);
+  try{
+    const wb=XLSX.read(new Uint8Array(buf),{type:'array',cellDates:true,sheets:['📊 Summary']});
+    ok('XLSX parsed! Sheets: '+wb.SheetNames.slice(0,3).join(', '));
+    const v=wb.Sheets['📊 Summary']?.B20?.v;
+    ok('Summary B20: '+v);
+  }catch(e){ err('XLSX error: '+e.message); }
+}
+function tryXLSXBinary(str,file){
+  log('Trying XLSX.read type:binary');
+  try{
+    const wb=XLSX.read(str,{type:'binary',cellDates:true,sheets:['📊 Summary']});
+    ok('XLSX binary parsed! Sheets: '+wb.SheetNames.slice(0,3).join(', '));
+  }catch(e){ err('XLSX binary error: '+e.message); }
+}
+function tryXLSXB64(b64,file){
+  log('Trying XLSX.read type:base64');
+  try{
+    const wb=XLSX.read(b64,{type:'base64',cellDates:true,sheets:['📊 Summary']});
+    ok('XLSX b64 parsed! Sheets: '+wb.SheetNames.slice(0,3).join(', '));
+  }catch(e){ err('XLSX b64 error: '+e.message); }
+}
+</script>
+</body>
+</html>
