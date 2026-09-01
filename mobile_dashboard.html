@@ -134,7 +134,26 @@
   .range .mk.cur{ background:var(--ink); }
   .range .rlab{ display:flex; justify-content:space-between; font-size:.62rem; color:var(--sub); }
   .lg i.band{ background:#c7d2fe; }
+  /* Chart.js canvases */
+  .chbox{ position:relative; width:100%; margin:.1rem 0 .2rem; }
+  .chcap{ font-size:.62rem; color:var(--sub); text-align:center; margin-top:.15rem; }
+  svg.spark{ display:block; }
+  .row .spk{ display:flex; align-items:center; margin-left:auto; padding:0 .5rem; }
+  .row .rt{ margin-left:.2rem; }
+  /* collapsible figure tables */
+  details.fold{ background:var(--card); border:1px solid var(--line); border-radius:.9rem;
+    margin-bottom:.75rem; overflow:hidden; }
+  details.fold>summary{ list-style:none; cursor:pointer; padding:.7rem .85rem;
+    display:flex; align-items:center; gap:.5rem; font-size:.7rem; text-transform:uppercase;
+    letter-spacing:.05em; color:var(--sub); font-weight:600; }
+  details.fold>summary::-webkit-details-marker{ display:none; }
+  details.fold>summary .r{ text-transform:none; letter-spacing:0; font-weight:600; color:var(--ink); }
+  details.fold>summary .chev{ margin-left:auto; transition:transform .15s; color:var(--sub); }
+  details.fold[open]>summary .chev{ transform:rotate(180deg); }
+  details.fold>summary .ft{ flex:0 1 auto; }
+  details.fold .fb{ padding:0 .85rem .85rem; }
 </style>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 </head>
 <body>
 <div class="wrap">
@@ -192,72 +211,100 @@ function g1(c,key){ const g=(c.gr||{})[key]; return g?(g['1y']!=null?g['1y']:g['
 function isReit(c){ return c.sec==='reit'; }
 function curPrice(c){ const v=c.va||{}; return (v.CurrentPrice!=null?v.CurrentPrice:c.px); }
 
-// ---------- inline-SVG charts (self-contained, no libraries) ----------
+// ---------- Chart.js infra (canvases queued during render, built after insert) ----------
 const PALETTE=['#4338ca','#0891b2','#16a34a','#d97706','#dc2626','#7c3aed','#0ea5e9','#65a30d'];
+let PENDING=[], LIVE=[], CHSEQ=0;
+if(window.Chart){
+  Chart.defaults.font.family='-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif';
+  Chart.defaults.font.size=10; Chart.defaults.color='#64748b';
+  Chart.defaults.animation=false; Chart.defaults.maintainAspectRatio=false;
+  Chart.defaults.plugins.legend.labels.boxWidth=10;
+  Chart.defaults.plugins.legend.labels.boxHeight=10;
+  Chart.defaults.plugins.legend.labels.padding=8;
+  Chart.defaults.plugins.legend.labels.font={size:10};
+}
+function queue(cfg,h){ const id='c'+(CHSEQ++); PENDING.push({id,cfg});
+  return `<div class="chbox" style="height:${h||160}px"><canvas id="${id}"></canvas></div>`; }
+function flushCharts(){
+  LIVE.forEach(ch=>{ try{ch.destroy();}catch(e){} }); LIVE=[];
+  if(!window.Chart){ PENDING=[]; return; }
+  PENDING.forEach(p=>{ const el=document.getElementById(p.id); if(!el) return;
+    try{ LIVE.push(new Chart(el.getContext('2d'), p.cfg)); }catch(e){} });
+  PENDING=[];
+}
+function alpha(hex,a){ const n=parseInt(hex.slice(1),16); return `rgba(${n>>16&255},${n>>8&255},${n&255},${a})`; }
 
-// multi-year line chart from [{label,key,color}] rows; forecast portion divided.
+// tiny inline-SVG sparkline for list rows (cheap; 170 of them, no Chart.js).
+function sparkSVG(c){
+  const a = ser(c,'Revenue') || ser(c,'TotalRevenue') || ser(c,'NetIncome') || ser(c,'DPU');
+  if(!a) return '';
+  const F=ff(c), hist=a.slice(0,F).filter(v=>v!=null);
+  if(hist.length<2) return '';
+  const mn=Math.min(...hist), mx=Math.max(...hist), rng=(mx-mn)||1, W=60,H=20,n=a.length;
+  let d='';
+  a.forEach((v,i)=>{ if(v==null||i>=F) return; const X=(n<=1?W/2:i*W/(F-1)); const Y=H-2-(v-mn)/rng*(H-4);
+    d+=(d?'L':'M')+X.toFixed(1)+' '+Y.toFixed(1)+' '; });
+  const up=hist[hist.length-1]>=hist[0], col=up?'#16a34a':'#dc2626';
+  return `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" class="spark" preserveAspectRatio="none"><path d="${d}" fill="none" stroke="${col}" stroke-width="1.6" vector-effect="non-scaling-stroke" stroke-linejoin="round" stroke-linecap="round"/></svg>`;
+}
+
+// multi-year line chart from [{label,key,color}] rows; forecast portion dashed.
 function chLine(c, rows, fmt){
   fmt=fmt||money;
   const yrs=c.yrs, F=ff(c), n=yrs.length;
   const got=rows.map((r,i)=>({label:r.label,color:r.color||PALETTE[i%PALETTE.length],a:ser(c,r.key)}))
                 .filter(r=>r.a&&r.a.some(v=>v!=null));
   if(!got.length) return '';
-  let mn=Infinity,mx=-Infinity;
-  got.forEach(r=>r.a.forEach(v=>{ if(v!=null){ if(v<mn)mn=v; if(v>mx)mx=v; } }));
-  if(!isFinite(mn)) return '';
-  if(mn>0) mn=0;                 // baseline at zero when all positive
-  if(mn===mx){ mx=mn+Math.abs(mn||1); }
-  const W=340,H=140,PX=4,top=8,bot=6,plotH=H-top-bot,plotW=W-PX*2, rng=(mx-mn)||1;
-  const X=i=> PX+(n<=1?plotW/2:i*plotW/(n-1));
-  const Y=v=> top+plotH-(v-mn)/rng*plotH;
-  let paths='';
-  got.forEach(r=>{
-    let d='';
-    r.a.forEach((v,i)=>{ if(v==null) return; d+=(d?'L':'M')+X(i).toFixed(1)+' '+Y(v).toFixed(1)+' '; });
-    paths+=`<path d="${d}" fill="none" stroke="${r.color}" stroke-width="2" vector-effect="non-scaling-stroke" stroke-linejoin="round" stroke-linecap="round"/>`;
-    const k=F-1; if(r.a[k]!=null) paths+=`<circle cx="${X(k).toFixed(1)}" cy="${Y(r.a[k]).toFixed(1)}" r="2.6" fill="${r.color}"/>`;
-  });
-  let div='';
-  if(F>0&&F<n){ const dx=((X(F-1)+X(F))/2).toFixed(1);
-    div=`<line x1="${dx}" y1="${top}" x2="${dx}" y2="${top+plotH}" stroke="#cbd5e1" stroke-width="1" vector-effect="non-scaling-stroke" stroke-dasharray="3 3"/>`; }
-  const zero=(mn<0&&mx>0)?`<line x1="${PX}" y1="${Y(0).toFixed(1)}" x2="${W-PX}" y2="${Y(0).toFixed(1)}" stroke="#e2e8f0" stroke-width="1" vector-effect="non-scaling-stroke"/>`:'';
-  const svg=`<div class="ch"><svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">${zero}${div}${paths}</svg></div>`;
-  const xax=`<div class="xax"><span>${yrs[0]}</span>${F<n?`<span>${yrs[F-1]} · ${yrs[n-1]}e</span>`:`<span>${yrs[n-1]}</span>`}</div>`;
-  const legend=`<div class="lg">${got.map(r=>`<span><i style="background:${r.color}"></i>${esc(r.label)}<b>${fmt(r.a[F-1]!=null?r.a[F-1]:r.a.filter(v=>v!=null).slice(-1)[0])}</b></span>`).join('')}</div>`;
-  return svg+xax+legend;
+  const single=got.length===1;
+  const labels=yrs.map((y,i)=> i>=F ? (y+'e') : (''+y));
+  const datasets=got.map(r=>({
+    label:r.label, data:r.a.map(v=> v==null?null:v),
+    borderColor:r.color, backgroundColor:single?alpha(r.color,0.14):r.color,
+    fill:single, tension:0.35, borderWidth:2.2, spanGaps:true,
+    pointRadius:r.a.map((v,i)=> (v!=null&&i===F-1)?3.2:0),
+    pointBackgroundColor:'#fff', pointBorderColor:r.color, pointBorderWidth:2,
+    segment:{ borderDash:ctx=> ctx.p1DataIndex>=F ? [5,3] : undefined }
+  }));
+  const cfg={ type:'line', data:{labels,datasets},
+    options:{ interaction:{mode:'index',intersect:false}, layout:{padding:{top:4,right:4}},
+      plugins:{ legend:{display:!single, position:'bottom'},
+        tooltip:{callbacks:{label:x=>x.dataset.label+': '+fmt(x.raw)}} },
+      scales:{ x:{grid:{display:false}, ticks:{maxRotation:0, autoSkip:true, autoSkipPadding:14}},
+        y:{grid:{color:'#f1f5f9'}, border:{display:false}, ticks:{callback:v=>fmt(v), maxTicksLimit:5}} } } };
+  return queue(cfg, single?150:180);
 }
 
-// horizontal bars from [{label,value,color}]; optional price marker colours up/down.
+// horizontal bars from [{label,value,color}]; optional marker colours up/down vs it.
 function chHBars(items, fmt, marker){
   fmt=fmt||px;
-  const vv=items.filter(i=>i.value!=null).map(i=>i.value);
-  if(!vv.length) return '';
-  let mx=Math.max(...vv, marker!=null?marker:-Infinity);
-  let mn=Math.min(0, ...vv, marker!=null?marker:Infinity);
-  const span=(mx-mn)||1;
-  const rows=items.map(i=>{ if(i.value==null) return '';
-    const w=Math.max(1,(i.value-mn)/span*100);
-    const col=i.color||(marker!=null?(i.value>=marker?'var(--good)':'var(--bad)'):'var(--accent)');
-    const extra=(marker!=null&&i.color==null)?` <span class="muted">(${pctS(i.value/marker-1)})</span>`:'';
-    return `<div class="hb"><div class="hbl">${esc(i.label)}</div><div class="hbt"><i style="left:0;width:${w.toFixed(0)}%;background:${col}"></i></div><div class="hbv">${fmt(i.value)}${extra}</div></div>`;
-  }).join('');
-  return `<div class="hbars">${rows}</div>`;
+  const its=items.filter(i=>i&&i.value!=null);
+  if(!its.length) return '';
+  const cols=its.map(i=> i.color ? i.color : (marker!=null ? (i.value>=marker?'#16a34a':'#dc2626') : '#4338ca'));
+  const cfg={ type:'bar', data:{ labels:its.map(i=>i.label),
+      datasets:[{ data:its.map(i=>i.value), backgroundColor:cols, borderRadius:5, maxBarThickness:24 }] },
+    options:{ indexAxis:'y', layout:{padding:{right:6}},
+      plugins:{ legend:{display:false},
+        tooltip:{callbacks:{label:x=>fmt(x.raw)+((marker!=null&&its[x.dataIndex].color==null)?'  ('+pctS(x.raw/marker-1)+')':'')}} },
+      scales:{ x:{grid:{color:'#f1f5f9'}, border:{display:false}, ticks:{callback:v=>fmt(v), maxTicksLimit:5}},
+        y:{grid:{display:false}, ticks:{font:{size:10}}} } } };
+  return queue(cfg, Math.max(120, its.length*32+44));
 }
 
-// donut from [{name,value,color}]
+// doughnut from [{name,value,color}]
 function chDonut(items){
   const data=(items||[]).filter(i=>i&&i.value>0);
   if(!data.length) return '';
   const tot=data.reduce((s,i)=>s+i.value,0)||1;
-  const R=52,C=2*Math.PI*R,cx=70,cy=70,sw=20; let off=0,segs='';
-  data.forEach((i,k)=>{ const len=i.value/tot*C, col=i.color||PALETTE[k%PALETTE.length];
-    segs+=`<circle cx="${cx}" cy="${cy}" r="${R}" fill="none" stroke="${col}" stroke-width="${sw}" stroke-dasharray="${len.toFixed(2)} ${(C-len).toFixed(2)}" stroke-dashoffset="${(-off).toFixed(2)}" transform="rotate(-90 ${cx} ${cy})"/>`;
-    off+=len; });
-  const legend=data.map((i,k)=>`<span><i style="background:${i.color||PALETTE[k%PALETTE.length]}"></i>${esc(i.name)}<b>${pct(i.value/tot)}</b></span>`).join('');
-  return `<div class="donut"><svg viewBox="0 0 140 140" width="112" height="112">${segs}</svg><div class="lg col">${legend}</div></div>`;
+  const cols=data.map((i,k)=>i.color||PALETTE[k%PALETTE.length]);
+  const cfg={ type:'doughnut', data:{ labels:data.map(i=>i.name),
+      datasets:[{ data:data.map(i=>i.value), backgroundColor:cols, borderColor:'#fff', borderWidth:1.5 }] },
+    options:{ cutout:'56%',
+      plugins:{ legend:{position:'right', labels:{boxWidth:9, padding:6, font:{size:9.5}}},
+        tooltip:{callbacks:{label:x=>x.label+': '+pct(x.raw/tot)}} } } };
+  return queue(cfg, Math.max(150, data.length*22+64));
 }
 
-// analyst target range: low–high band + mean + current markers
+// analyst target range: low–high band + mean + current markers (kept as HTML diagram).
 function chRange(low,mean,high,cur){
   const pts=[low,mean,high,cur].filter(v=>v!=null); if(pts.length<2) return '';
   const mn=Math.min(...pts),mx=Math.max(...pts),span=(mx-mn)||1, p=v=>((v-mn)/span*100);
@@ -314,6 +361,7 @@ function renderList(){
         <div class="nm">${esc(c.n||'')}</div>
         ${flag}
       </div>
+      <div class="spk">${sparkSVG(c)}</div>
       <div class="rt">${ver}<div class="up">${c.ctry||''}</div></div>
     </div>`;
   }).join('');
@@ -323,6 +371,8 @@ function renderList(){
 // ---------- shared builders ----------
 function kv(k,v){ return `<div class="kv"><div class="k">${k}</div><div class="v">${v}</div></div>`; }
 function card(title,body,right){ if(!body) return ''; return `<div class="card"><h3>${title}${right?`<span class="r">${right}</span>`:''}</h3>${body}</div>`; }
+// collapsible figures block — charts lead, dense number tables tucked behind a tap.
+function foldCard(title,body,right){ if(!body) return ''; return `<details class="fold"><summary><span class="ft">${title}</span>${right?`<span class="r">${right}</span>`:''}<span class="chev">▾</span></summary><div class="fb">${body}</div></details>`; }
 function gridOf(items){ const g=items.filter(Boolean); return g.length?`<div class="grid">${g.join('')}</div>`:''; }
 
 // multi-year table from [label, seriesKey|array, fmt] rows; skips empty rows.
@@ -497,7 +547,7 @@ function tabSummary(c){
     + verdictCard(c)
     + (trendChart?card(isReit(c)?'Revenue, NPI & distributions':'Revenue & earnings', trendChart):'')
     + card(`Key metrics · LFY ${c.lfy||''}`, summaryGrid(c))
-    + card('History', hist);
+    + foldCard('Show figures · history', hist);
 }
 
 function tabValuation(c){
@@ -533,7 +583,7 @@ function tabValuation(c){
       kv('NAV / unit',num2(last(c,'NAVPerUnit'))),
       kv('Implied cap rate',pct(last(c,'ImpliedCapRate'))),
     ]);
-    return verdictCard(c)+mcard+card('Assumptions',ass)+card('Market-implied',mkt);
+    return verdictCard(c)+mcard+card('Market-implied',mkt)+foldCard('Show figures · assumptions',ass);
   }
   const v=c.va||{};
   const ass=gridOf([
@@ -558,7 +608,7 @@ function tabValuation(c){
   let rdcfCard='';
   const rd=c.rdcf;
   if(rd){
-    rdcfCard=card('Reverse DCF', gridOf([
+    rdcfCard=foldCard('Show figures · reverse DCF', gridOf([
       rd.implied_growth!=null?kv('Implied growth',pct2(rd.implied_growth)):'',
       rd.model_growth!=null?kv('Model growth',pct2(rd.model_growth)):'',
       rd.historical_5y_cagr!=null?kv('Historical 5y CAGR',pct2(rd.historical_5y_cagr)):'',
@@ -576,7 +626,7 @@ function tabValuation(c){
   ].filter(Boolean);
   const barChart=chHBars(barItems, px, cur);
   const barCard=barChart?card('Implied price vs current',barChart):'';
-  return verdictCard(c)+barCard+card('DCF assumptions',ass)+rdcfCard;
+  return verdictCard(c)+barCard+rdcfCard+foldCard('Show figures · DCF assumptions',ass);
 }
 
 function tabFinancials(c){
@@ -588,9 +638,9 @@ function tabFinancials(c){
       ? [{label:'Net interest margin',key:'NIM'},{label:'Efficiency',key:'EfficiencyRatio'},{label:'ROE',key:'ROE'}]
       : [{label:'Gross margin',key:'GrossMargin'},{label:'Operating margin',key:'OpMargin'},{label:'Net margin',key:'NIMargin'}], pct);
   const charts=(trendChart?card('Revenue & profit',trendChart):'')+(marginChart?card('Margins & returns',marginChart):'');
-  const inc=card('Income statement', seriesTable(c, INCOME_ROWS.slice(1)));
-  const bs =card('Balance sheet', seriesTable(c, BALANCE_ROWS.slice(1)));
-  const cf =card('Cash flow', seriesTable(c, CASH_ROWS.slice(1)));
+  const inc=foldCard('Show figures · income statement', seriesTable(c, INCOME_ROWS.slice(1)));
+  const bs =foldCard('Show figures · balance sheet', seriesTable(c, BALANCE_ROWS.slice(1)));
+  const cf =foldCard('Show figures · cash flow', seriesTable(c, CASH_ROWS.slice(1)));
   const seg=segmentCard(c);
   const out=[charts,inc,bs,cf,seg].filter(Boolean).join('');
   return out||'<div class="empty">No statement data.</div>';
@@ -628,7 +678,7 @@ function tabReitIncome(c){
   const revChart=chLine(c,[{label:'Revenue',key:'Revenue'},{label:'NPI',key:'NPI'},{label:'Distributable income',key:'DistIncome'}], money);
   const dpuChart=chLine(c,[{label:'DPU',key:'DPU'}], dpu);
   const charts=(revChart?card('Revenue, NPI & distributions',revChart):'')+(dpuChart?card('DPU trend',dpuChart):'');
-  const trend=card('Trend', seriesTable(c,[
+  const trend=foldCard('Show figures · trend', seriesTable(c,[
     ['Revenue','Revenue',money],['NPI','NPI',money],['NPI margin','NPIMargin',pct],
     ['Operating profit','OperatingProfit',money],['Net finance costs','NetFinCosts',money],
     ['Net income','NetIncome',money],['Dist. income','DistIncome',money],['DPU','DPU',dpu],
@@ -644,7 +694,7 @@ function tabReitIncome(c){
     const rowOf=(lab,arr,fmt)=>{ if(!arr||!arr.some(v=>v!=null)) return '';
       return `<tr><td>${lab}</td>`+yrs.map((y,i)=>{ const k=i-off; return `<td class="${i>=ff(c)?'fc':''}">${fmt(k>=0?at(arr,k):null)}</td>`;}).join('')+`</tr>`; };
     const body=[rowOf('FFO',R.ffo_series,money),rowOf('AFFO',R.affo_series,money),rowOf('Distributions',R.distr_series,money),rowOf('Capex',R.capex_series,money),rowOf('Units (m)',R.units_series,num)].filter(Boolean).join('');
-    if(body) ffoCard=card('FFO / AFFO / distributions', `<div class="tscroll"><table><thead><tr><th>FY</th>${head}</tr></thead><tbody>${body}</tbody></table></div>`);
+    if(body) ffoCard=foldCard('Show figures · FFO / AFFO / distributions', `<div class="tscroll"><table><thead><tr><th>FY</th>${head}</tr></thead><tbody>${body}</tbody></table></div>`);
   }
   const out=[charts,lfyCard,trend,ffoCard].filter(Boolean).join('');
   return out||'<div class="empty">No income data.</div>';
@@ -662,18 +712,18 @@ function tabReitBalance(c){
       rows+=`<tr class="subh"><td colspan="2">${SECT[s]}</td></tr>`;
       rows+=lines.map(l=>`<tr><td>${esc(l.label)}</td><td>${money(l.val)}</td></tr>`).join('');
     }
-    if(rows) bsCard=card('Balance sheet · LFY', `<table><tbody>${rows}</tbody></table>`);
+    if(rows) bsCard=foldCard('Show figures · balance sheet (LFY)', `<table><tbody>${rows}</tbody></table>`);
   }
   const aChart=chLine(c,[{label:'Total assets',key:'TA'},{label:'Total liabilities',key:'TL'},{label:'Total equity',key:'TE'}], money);
   const gChart=chLine(c,[{label:'Gearing',key:'GearingRatio'}], pct);
   const charts=(aChart?card('Assets, liabilities & equity',aChart):'')+(gChart?card('Gearing trend',gChart):'');
-  const trend=card('Balance trend', seriesTable(c,[
+  const trend=foldCard('Show figures · balance trend', seriesTable(c,[
     ['Total assets','TA',money],['Portfolio value','PortfolioValue',money],
     ['Total liabilities','TL',money],['Long-term debt','LTD',money],['Short-term debt','STD',money],
     ['Net debt','NetDebt',money],['Total equity','TE',money],
     ['NAV / unit','NAVPerUnit',num2],['Gearing','GearingRatio',pct],['ICR','InterestCoverageRatio',mult],
   ]));
-  const cf=card('Cash flow', seriesTable(c,[
+  const cf=foldCard('Show figures · cash flow', seriesTable(c,[
     ['Operating CF','CFO',money],['Capex','Capex',money],
     ['Distributions paid','DistPaid',money],['Financing CF','CFF',money],
   ]));
@@ -711,7 +761,7 @@ function tabRatios(c){
   const levCh=mkChart('Leverage & coverage',[{label:'Net debt/EBITDA',key:'DebtEBITDA'},{label:'Interest coverage',key:'InterestCoverage'}],mult);
   const charts=[marginCh,returnCh,levCh].filter(Boolean).join('');
   const t=seriesTable(c, RATIO_GROUPS);
-  const out=charts+(t?card('Ratios (multi-year)',t):'');
+  const out=charts+(t?foldCard('Show figures · ratios (multi-year)',t):'');
   return out||'<div class="empty">No ratio data.</div>';
 }
 
@@ -812,6 +862,7 @@ function renderTabs(c){
 function renderTabBody(c){
   const fn=RENDER[curTab]||tabSummary;
   $('#dbody').innerHTML=fn(c)+`<div class="muted" style="font-size:.66rem;text-align:center;margin-top:1rem">Figures mirror the desktop dashboard exactly. <b>e</b> = forecast year. Verify on device; edits happen on the Mac.</div>`;
+  flushCharts();
 }
 
 // ---------- helpers ----------
@@ -828,7 +879,7 @@ function openDetail(t){
   $('#detail').scrollTop=0;
   history.pushState({d:t},'', '#'+t);
 }
-function closeDetail(){ $('#detail').classList.remove('open'); }
+function closeDetail(){ $('#detail').classList.remove('open'); LIVE.forEach(ch=>{try{ch.destroy();}catch(e){}}); LIVE=[]; PENDING=[]; }
 $('#back').onclick=()=>history.back();
 window.addEventListener('popstate',()=>{ if(location.hash.length>1){/*stay*/} else closeDetail(); });
 
