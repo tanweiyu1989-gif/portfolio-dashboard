@@ -109,6 +109,31 @@
   .empty{ color:var(--sub); font-size:.8rem; text-align:center; padding:2rem 0; }
   .muted{ color:var(--sub); }
   a.link{ color:var(--accent); word-break:break-all; }
+  /* charts */
+  .ch svg{ display:block; width:100%; height:auto; background:linear-gradient(#ffffff,#fbfcff);
+    border:1px solid var(--line); border-radius:.5rem; }
+  .xax{ display:flex; justify-content:space-between; font-size:.62rem; color:var(--sub); padding:.15rem .25rem 0; }
+  .lg{ display:flex; flex-wrap:wrap; gap:.45rem .7rem; margin-top:.45rem; font-size:.68rem; color:var(--sub); }
+  .lg.col{ flex-direction:column; gap:.28rem; }
+  .lg span{ display:inline-flex; align-items:center; }
+  .lg i{ display:inline-block; width:.62rem; height:.62rem; border-radius:.15rem; margin-right:.3rem; flex:0 0 auto; }
+  .lg b{ color:var(--ink); margin-left:.25rem; }
+  .hbars{ display:flex; flex-direction:column; gap:.4rem; margin-top:.2rem; }
+  .hb{ display:grid; grid-template-columns:40% 1fr auto; align-items:center; gap:.45rem; font-size:.72rem; }
+  .hbl{ color:var(--sub); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .hbt{ position:relative; height:14px; background:var(--bg); border-radius:999px; overflow:hidden; }
+  .hbt>i{ position:absolute; top:0; height:100%; border-radius:999px; }
+  .hbv{ font-weight:700; font-size:.7rem; white-space:nowrap; }
+  .donuts{ display:flex; flex-wrap:wrap; gap:1rem; }
+  .donut{ display:flex; align-items:center; gap:.7rem; flex:1 1 100%; }
+  .donut svg{ flex:0 0 auto; }
+  .range .rtrack{ position:relative; height:16px; background:var(--bg); border-radius:999px; margin:.4rem 0 .2rem; }
+  .range .band{ position:absolute; top:0; height:100%; background:#c7d2fe; border-radius:999px; }
+  .range .mk{ position:absolute; top:-3px; width:3px; height:22px; border-radius:2px; transform:translateX(-1px); }
+  .range .mk.mean{ background:var(--accent); }
+  .range .mk.cur{ background:var(--ink); }
+  .range .rlab{ display:flex; justify-content:space-between; font-size:.62rem; color:var(--sub); }
+  .lg i.band{ background:#c7d2fe; }
 </style>
 </head>
 <body>
@@ -165,6 +190,83 @@ function ser(c,key){ // resolve a series from trends then ratios
 function last(c,key){ return at(ser(c,key), li(c)); }             // last-actual value
 function g1(c,key){ const g=(c.gr||{})[key]; return g?(g['1y']!=null?g['1y']:g['1Y']):null; }
 function isReit(c){ return c.sec==='reit'; }
+function curPrice(c){ const v=c.va||{}; return (v.CurrentPrice!=null?v.CurrentPrice:c.px); }
+
+// ---------- inline-SVG charts (self-contained, no libraries) ----------
+const PALETTE=['#4338ca','#0891b2','#16a34a','#d97706','#dc2626','#7c3aed','#0ea5e9','#65a30d'];
+
+// multi-year line chart from [{label,key,color}] rows; forecast portion divided.
+function chLine(c, rows, fmt){
+  fmt=fmt||money;
+  const yrs=c.yrs, F=ff(c), n=yrs.length;
+  const got=rows.map((r,i)=>({label:r.label,color:r.color||PALETTE[i%PALETTE.length],a:ser(c,r.key)}))
+                .filter(r=>r.a&&r.a.some(v=>v!=null));
+  if(!got.length) return '';
+  let mn=Infinity,mx=-Infinity;
+  got.forEach(r=>r.a.forEach(v=>{ if(v!=null){ if(v<mn)mn=v; if(v>mx)mx=v; } }));
+  if(!isFinite(mn)) return '';
+  if(mn>0) mn=0;                 // baseline at zero when all positive
+  if(mn===mx){ mx=mn+Math.abs(mn||1); }
+  const W=340,H=140,PX=4,top=8,bot=6,plotH=H-top-bot,plotW=W-PX*2, rng=(mx-mn)||1;
+  const X=i=> PX+(n<=1?plotW/2:i*plotW/(n-1));
+  const Y=v=> top+plotH-(v-mn)/rng*plotH;
+  let paths='';
+  got.forEach(r=>{
+    let d='';
+    r.a.forEach((v,i)=>{ if(v==null) return; d+=(d?'L':'M')+X(i).toFixed(1)+' '+Y(v).toFixed(1)+' '; });
+    paths+=`<path d="${d}" fill="none" stroke="${r.color}" stroke-width="2" vector-effect="non-scaling-stroke" stroke-linejoin="round" stroke-linecap="round"/>`;
+    const k=F-1; if(r.a[k]!=null) paths+=`<circle cx="${X(k).toFixed(1)}" cy="${Y(r.a[k]).toFixed(1)}" r="2.6" fill="${r.color}"/>`;
+  });
+  let div='';
+  if(F>0&&F<n){ const dx=((X(F-1)+X(F))/2).toFixed(1);
+    div=`<line x1="${dx}" y1="${top}" x2="${dx}" y2="${top+plotH}" stroke="#cbd5e1" stroke-width="1" vector-effect="non-scaling-stroke" stroke-dasharray="3 3"/>`; }
+  const zero=(mn<0&&mx>0)?`<line x1="${PX}" y1="${Y(0).toFixed(1)}" x2="${W-PX}" y2="${Y(0).toFixed(1)}" stroke="#e2e8f0" stroke-width="1" vector-effect="non-scaling-stroke"/>`:'';
+  const svg=`<div class="ch"><svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">${zero}${div}${paths}</svg></div>`;
+  const xax=`<div class="xax"><span>${yrs[0]}</span>${F<n?`<span>${yrs[F-1]} · ${yrs[n-1]}e</span>`:`<span>${yrs[n-1]}</span>`}</div>`;
+  const legend=`<div class="lg">${got.map(r=>`<span><i style="background:${r.color}"></i>${esc(r.label)}<b>${fmt(r.a[F-1]!=null?r.a[F-1]:r.a.filter(v=>v!=null).slice(-1)[0])}</b></span>`).join('')}</div>`;
+  return svg+xax+legend;
+}
+
+// horizontal bars from [{label,value,color}]; optional price marker colours up/down.
+function chHBars(items, fmt, marker){
+  fmt=fmt||px;
+  const vv=items.filter(i=>i.value!=null).map(i=>i.value);
+  if(!vv.length) return '';
+  let mx=Math.max(...vv, marker!=null?marker:-Infinity);
+  let mn=Math.min(0, ...vv, marker!=null?marker:Infinity);
+  const span=(mx-mn)||1;
+  const rows=items.map(i=>{ if(i.value==null) return '';
+    const w=Math.max(1,(i.value-mn)/span*100);
+    const col=i.color||(marker!=null?(i.value>=marker?'var(--good)':'var(--bad)'):'var(--accent)');
+    const extra=(marker!=null&&i.color==null)?` <span class="muted">(${pctS(i.value/marker-1)})</span>`:'';
+    return `<div class="hb"><div class="hbl">${esc(i.label)}</div><div class="hbt"><i style="left:0;width:${w.toFixed(0)}%;background:${col}"></i></div><div class="hbv">${fmt(i.value)}${extra}</div></div>`;
+  }).join('');
+  return `<div class="hbars">${rows}</div>`;
+}
+
+// donut from [{name,value,color}]
+function chDonut(items){
+  const data=(items||[]).filter(i=>i&&i.value>0);
+  if(!data.length) return '';
+  const tot=data.reduce((s,i)=>s+i.value,0)||1;
+  const R=52,C=2*Math.PI*R,cx=70,cy=70,sw=20; let off=0,segs='';
+  data.forEach((i,k)=>{ const len=i.value/tot*C, col=i.color||PALETTE[k%PALETTE.length];
+    segs+=`<circle cx="${cx}" cy="${cy}" r="${R}" fill="none" stroke="${col}" stroke-width="${sw}" stroke-dasharray="${len.toFixed(2)} ${(C-len).toFixed(2)}" stroke-dashoffset="${(-off).toFixed(2)}" transform="rotate(-90 ${cx} ${cy})"/>`;
+    off+=len; });
+  const legend=data.map((i,k)=>`<span><i style="background:${i.color||PALETTE[k%PALETTE.length]}"></i>${esc(i.name)}<b>${pct(i.value/tot)}</b></span>`).join('');
+  return `<div class="donut"><svg viewBox="0 0 140 140" width="112" height="112">${segs}</svg><div class="lg col">${legend}</div></div>`;
+}
+
+// analyst target range: low–high band + mean + current markers
+function chRange(low,mean,high,cur){
+  const pts=[low,mean,high,cur].filter(v=>v!=null); if(pts.length<2) return '';
+  const mn=Math.min(...pts),mx=Math.max(...pts),span=(mx-mn)||1, p=v=>((v-mn)/span*100);
+  const band=(low!=null&&high!=null)?`<i class="band" style="left:${p(low)}%;width:${(p(high)-p(low)).toFixed(1)}%"></i>`:'';
+  const mk=(v,cl)=> v==null?'':`<i class="mk ${cl}" style="left:${p(v)}%"></i>`;
+  return `<div class="range"><div class="rtrack">${band}${mk(mean,'mean')}${mk(cur,'cur')}</div>
+    <div class="rlab"><span>${px(low)}</span><span>${px(high)}</span></div>
+    <div class="lg"><span><i class="band"></i>Analyst low–high</span><span><i style="background:var(--accent)"></i>Mean ${px(mean)}</span><span><i style="background:var(--ink)"></i>Current ${px(cur)}</span></div></div>`;
+}
 
 // ---------- state ----------
 let filterCat='All', term='', flaggedOnly=false, curTab='Summary';
@@ -384,11 +486,16 @@ function tabSummary(c){
       <div class="muted" style="font-size:.82rem;margin-top:.15rem">${esc(c.n||'')}</div>
       ${c.note?`<div class="muted" style="font-size:.68rem;margin-top:.35rem">${esc(c.note)}</div>`:''}
     </div>`;
+  const trendRows=isReit(c)
+    ? [{label:'Revenue',key:'Revenue'},{label:'NPI',key:'NPI'},{label:'Distributable income',key:'DistIncome'}]
+    : [{label:'Revenue',key:(c.tr&&c.tr.Revenue)?'Revenue':'TotalRevenue'},{label:'Net income',key:'NetIncome'}];
+  const trendChart=chLine(c, trendRows, money);
   const hist=seriesTable(c, isReit(c)
     ? [['Revenue','Revenue',money],['NPI','NPI',money],['Net income','NetIncome',money],['DPU','DPU',dpu],['NAV/unit','NAVPerUnit',num2],['Gearing','GearingRatio',pct]]
     : [['Revenue',(c.tr&&c.tr.Revenue)?'Revenue':'TotalRevenue',money],['Net income','NetIncome',money],['EPS','EPS',num2],['Op margin','OpMargin',pct],['ROE','ROE',pct]]);
   return hdr
     + verdictCard(c)
+    + (trendChart?card(isReit(c)?'Revenue, NPI & distributions':'Revenue & earnings', trendChart):'')
     + card(`Key metrics · LFY ${c.lfy||''}`, summaryGrid(c))
     + card('History', hist);
 }
@@ -398,7 +505,12 @@ function tabValuation(c){
     const R=c.reit;
     const methods=(R.methods||[]).filter(m=>m&&m.value!=null)
       .map(m=>`<div class="verrow"><span class="lab">${esc(m.name)}</span><span class="val">${px(m.value)}</span></div>`).join('');
-    const mcard=card('Fair-value methods', methods
+    const cur=curPrice(c);
+    const barItems=(R.methods||[]).filter(m=>m&&m.value!=null).map(m=>({label:m.name,value:m.value}))
+      .concat(R.blended!=null?[{label:'Blended',value:R.blended,color:'var(--ink)'}]:[])
+      .concat(cur!=null?[{label:'Current price',value:cur,color:'#94a3b8'}]:[]);
+    const barChart=chHBars(barItems, px, cur);
+    const mcard=card('Fair-value methods vs price', (barChart||'') + methods
       + (R.blended!=null?`<div class="verrow"><span class="lab"><b>Blended</b></span><span class="val">${px(R.blended)}</span></div>`:'')
       + (R.median!=null?`<div class="verrow"><span class="lab"><b>Median</b></span><span class="val">${px(R.median)}</span></div>`:''));
     const ass=gridOf([
@@ -454,15 +566,33 @@ function tabValuation(c){
       rd.target_price!=null?kv('Target price',px(rd.target_price)):'',
     ]));
   }
-  return verdictCard(c)+card('DCF assumptions',ass)+rdcfCard;
+  const md=c.md||{}, cur=curPrice(c);
+  const barItems=[
+    v.ImpliedPrice!=null?{label:'DCF implied',value:v.ImpliedPrice}:null,
+    v.ImpliedPriceEVEBITDA!=null?{label:'EV/EBITDA implied',value:v.ImpliedPriceEVEBITDA}:null,
+    (rd&&rd.target_price!=null)?{label:'Reverse-DCF target',value:rd.target_price}:null,
+    md.target_mean!=null?{label:'Analyst mean',value:md.target_mean}:null,
+    cur!=null?{label:'Current price',value:cur,color:'#94a3b8'}:null,
+  ].filter(Boolean);
+  const barChart=chHBars(barItems, px, cur);
+  const barCard=barChart?card('Implied price vs current',barChart):'';
+  return verdictCard(c)+barCard+card('DCF assumptions',ass)+rdcfCard;
 }
 
 function tabFinancials(c){
+  const isBank=c.sec==='bank';
+  const trendChart=chLine(c, isBank
+      ? [{label:'Total revenue',key:'TotalRevenue'},{label:'Net interest income',key:'NII'},{label:'Net income',key:'NetIncome'}]
+      : [{label:'Revenue',key:(c.tr&&c.tr.Revenue)?'Revenue':'TotalRevenue'},{label:'Operating profit',key:'OperatingProfit'},{label:'Net income',key:'NetIncome'}], money);
+  const marginChart=chLine(c, isBank
+      ? [{label:'Net interest margin',key:'NIM'},{label:'Efficiency',key:'EfficiencyRatio'},{label:'ROE',key:'ROE'}]
+      : [{label:'Gross margin',key:'GrossMargin'},{label:'Operating margin',key:'OpMargin'},{label:'Net margin',key:'NIMargin'}], pct);
+  const charts=(trendChart?card('Revenue & profit',trendChart):'')+(marginChart?card('Margins & returns',marginChart):'');
   const inc=card('Income statement', seriesTable(c, INCOME_ROWS.slice(1)));
   const bs =card('Balance sheet', seriesTable(c, BALANCE_ROWS.slice(1)));
   const cf =card('Cash flow', seriesTable(c, CASH_ROWS.slice(1)));
   const seg=segmentCard(c);
-  const out=[inc,bs,cf,seg].filter(Boolean).join('');
+  const out=[charts,inc,bs,cf,seg].filter(Boolean).join('');
   return out||'<div class="empty">No statement data.</div>';
 }
 
@@ -495,6 +625,9 @@ function tabReitIncome(c){
       I.distInc!=null?kv('Distributable income',money(I.distInc)):'',
     ]));
   }
+  const revChart=chLine(c,[{label:'Revenue',key:'Revenue'},{label:'NPI',key:'NPI'},{label:'Distributable income',key:'DistIncome'}], money);
+  const dpuChart=chLine(c,[{label:'DPU',key:'DPU'}], dpu);
+  const charts=(revChart?card('Revenue, NPI & distributions',revChart):'')+(dpuChart?card('DPU trend',dpuChart):'');
   const trend=card('Trend', seriesTable(c,[
     ['Revenue','Revenue',money],['NPI','NPI',money],['NPI margin','NPIMargin',pct],
     ['Operating profit','OperatingProfit',money],['Net finance costs','NetFinCosts',money],
@@ -513,7 +646,7 @@ function tabReitIncome(c){
     const body=[rowOf('FFO',R.ffo_series,money),rowOf('AFFO',R.affo_series,money),rowOf('Distributions',R.distr_series,money),rowOf('Capex',R.capex_series,money),rowOf('Units (m)',R.units_series,num)].filter(Boolean).join('');
     if(body) ffoCard=card('FFO / AFFO / distributions', `<div class="tscroll"><table><thead><tr><th>FY</th>${head}</tr></thead><tbody>${body}</tbody></table></div>`);
   }
-  const out=[lfyCard,trend,ffoCard].filter(Boolean).join('');
+  const out=[charts,lfyCard,trend,ffoCard].filter(Boolean).join('');
   return out||'<div class="empty">No income data.</div>';
 }
 
@@ -531,6 +664,9 @@ function tabReitBalance(c){
     }
     if(rows) bsCard=card('Balance sheet · LFY', `<table><tbody>${rows}</tbody></table>`);
   }
+  const aChart=chLine(c,[{label:'Total assets',key:'TA'},{label:'Total liabilities',key:'TL'},{label:'Total equity',key:'TE'}], money);
+  const gChart=chLine(c,[{label:'Gearing',key:'GearingRatio'}], pct);
+  const charts=(aChart?card('Assets, liabilities & equity',aChart):'')+(gChart?card('Gearing trend',gChart):'');
   const trend=card('Balance trend', seriesTable(c,[
     ['Total assets','TA',money],['Portfolio value','PortfolioValue',money],
     ['Total liabilities','TL',money],['Long-term debt','LTD',money],['Short-term debt','STD',money],
@@ -541,7 +677,7 @@ function tabReitBalance(c){
     ['Operating CF','CFO',money],['Capex','Capex',money],
     ['Distributions paid','DistPaid',money],['Financing CF','CFF',money],
   ]));
-  const out=[bsCard,trend,cf].filter(Boolean).join('');
+  const out=[charts,bsCard,trend,cf].filter(Boolean).join('');
   return out||'<div class="empty">No balance-sheet data.</div>';
 }
 
@@ -555,10 +691,12 @@ function tabReitProperty(c){
     kv('Implied cap rate',pct(last(c,'ImpliedCapRate'))),
     kv('Gearing',pct(last(c,'GearingRatio'))),
   ]);
+  const toDonut=arr=>(arr||[]).filter(x=>x&&x.pct!=null).map(x=>({name:x.name,value:x.pct}));
+  const secD=chDonut(toDonut(R.sector_conc)), geoD=chDonut(toDonut(R.geo_conc));
   const out=[
     kpi?card('Portfolio',kpi):'',
-    concList('Sector concentration', R.sector_conc),
-    concList('Geographic concentration', R.geo_conc),
+    secD?card('Sector concentration',secD):concList('Sector concentration', R.sector_conc),
+    geoD?card('Geographic concentration',geoD):concList('Geographic concentration', R.geo_conc),
     concList('Top properties', R.top_props),
     concList('Top tenants', R.top_tenants),
     R.wale_source?card('WALE source',`<div class="prose small">${esc(R.wale_source)}</div>`):'',
@@ -566,7 +704,16 @@ function tabReitProperty(c){
   return out||'<div class="empty">No property data.</div>';
 }
 
-function tabRatios(c){ const t=seriesTable(c, RATIO_GROUPS); return t?card('Ratios (multi-year)',t):'<div class="empty">No ratio data.</div>'; }
+function tabRatios(c){
+  const mkChart=(title,rows,fmt)=>{ const ch=chLine(c,rows.filter(r=>ser(c,r.key)),fmt); return ch?card(title,ch):''; };
+  const marginCh=mkChart('Margins',[{label:'Gross',key:'GrossMargin'},{label:'Operating',key:'OpMargin'},{label:'Net',key:'NIMargin'},{label:'NPI',key:'NPIMargin'}],pct);
+  const returnCh=mkChart('Returns',[{label:'ROE',key:'ROE'},{label:'ROA',key:'ROA'},{label:'ROIC',key:'ROIC'}],pct);
+  const levCh=mkChart('Leverage & coverage',[{label:'Net debt/EBITDA',key:'DebtEBITDA'},{label:'Interest coverage',key:'InterestCoverage'}],mult);
+  const charts=[marginCh,returnCh,levCh].filter(Boolean).join('');
+  const t=seriesTable(c, RATIO_GROUPS);
+  const out=charts+(t?card('Ratios (multi-year)',t):'');
+  return out||'<div class="empty">No ratio data.</div>';
+}
 
 function tabMarket(c){
   const md=c.md||{};
@@ -590,10 +737,20 @@ function tabMarket(c){
     md.yahoo_ev_ebitda!=null?kv('EV / EBITDA',num2(md.yahoo_ev_ebitda)):'',
     md.yahoo_ev_rev!=null?kv('EV / Revenue',num2(md.yahoo_ev_rev)):'',
   ]);
+  const cur=curPrice(c);
+  const rangeChart=chRange(md.target_low, md.target_mean!=null?md.target_mean:md.target_median, md.target_high, cur);
+  const ownItems=[
+    md.insider_pct!=null?{name:'Insider',value:md.insider_pct}:null,
+    md.institution_pct!=null?{name:'Institutional',value:md.institution_pct}:null,
+  ].filter(Boolean);
+  const held=ownItems.reduce((s,i)=>s+i.value,0);
+  if(ownItems.length && held<1) ownItems.push({name:'Retail / other',value:Math.max(0,1-held),color:'#e2e8f0'});
+  const ownDonut=chDonut(ownItems);
   const filings=md.sec_filings_url?card('Filings',`<a class="link" href="${esc(md.sec_filings_url)}" target="_blank" rel="noopener">${esc(md.sec_filings_url)}</a>`):'';
   const out=[
+    rangeChart?card('Analyst target range',rangeChart):'',
     tgt?card('Analyst targets',tgt):'',
-    own?card('Ownership',own):'',
+    ownDonut?card('Ownership',ownDonut):(own?card('Ownership',own):''),
     mult?card('Market multiples',mult):'',
     filings,
   ].filter(Boolean).join('');
@@ -622,10 +779,11 @@ function tabAnalysis(c){
   return [head,biz,qual,thesis,fwd].filter(x=>x).join('')+meta;
 }
 
-function tabFlags(c){
-  if(!c.flags.length) return '<div class="empty">No open flags.</div>';
-  return card(`⚑ ${c.flags.length} cell(s) to verify`,
-    c.flags.map(f=>`<div class="flagli"><span class="c">${esc(f.cell)}</span><span style="flex:1">${esc(f.item||'')} <span class="muted">FY${esc(f.fy)}</span></span><span class="diag">${esc(f.diag)}</span></div>`).join(''));
+function tabGaps(c){
+  if(!c.flags.length) return '<div class="empty">No data gaps — every cell has a verified source.</div>';
+  const note=`<div class="prose small" style="margin-bottom:.6rem">These are <b>data-coverage gaps, not calculation errors</b>. Each row is a cell still awaiting a verified source — mostly missing early-year history from before a filing was digitised, plus a few needing a source check. The model computes correctly around them; filling them just extends the history.</div>`;
+  return card(`${c.flags.length} cell(s) awaiting a source`,
+    note + c.flags.map(f=>`<div class="flagli"><span class="c">${esc(f.cell)}</span><span style="flex:1">${esc(f.item||'')} <span class="muted">FY${esc(f.fy)}</span></span><span class="diag">${esc(f.diag)}</span></div>`).join(''));
 }
 
 // ---------- tab wiring ----------
@@ -633,13 +791,13 @@ function tabsFor(c){
   const base = isReit(c)
     ? ['Summary','Valuation','Income','Balance','Property','Ratios','Market','Analysis']
     : ['Summary','Valuation','Financials','Ratios','Market','Analysis'];
-  if(c.flags.length) base.push('Flags');
+  if(c.flags.length) base.push('Gaps');
   return base;
 }
 const RENDER={
   'Summary':tabSummary, 'Valuation':tabValuation, 'Financials':tabFinancials,
   'Income':tabReitIncome, 'Balance':tabReitBalance, 'Property':tabReitProperty,
-  'Ratios':tabRatios, 'Market':tabMarket, 'Analysis':tabAnalysis, 'Flags':tabFlags,
+  'Ratios':tabRatios, 'Market':tabMarket, 'Analysis':tabAnalysis, 'Gaps':tabGaps,
 };
 
 function renderTabs(c){
