@@ -152,6 +152,51 @@
   details.fold[open]>summary .chev{ transform:rotate(180deg); }
   details.fold>summary .ft{ flex:0 1 auto; }
   details.fold .fb{ padding:0 .85rem .85rem; }
+  /* financial-health meters */
+  .meters{ display:grid; gap:.55rem; margin-top:.5rem; }
+  .meter .mtop{ display:flex; justify-content:space-between; align-items:baseline; font-size:.72rem; }
+  .meter .mlab{ color:var(--sub); }
+  .meter .mval{ font-weight:700; font-variant-numeric:tabular-nums; }
+  .meter .mtrack{ position:relative; height:8px; border-radius:5px; background:#eef2f7; margin:.28rem 0 .1rem; overflow:visible; }
+  .meter .mfill{ position:absolute; left:0; top:0; bottom:0; border-radius:5px; }
+  .meter .mmark{ position:absolute; top:-2px; bottom:-2px; width:2px; background:#334155; }
+  .meter .mnote{ font-size:.58rem; color:var(--sub); }
+  .hscore{ display:grid; grid-template-columns:1fr 1fr; gap:.05rem .9rem; margin:.35rem 0 .2rem; }
+  .hscore .hrow{ display:flex; justify-content:space-between; font-size:.72rem; padding:.18rem 0;
+    border-bottom:1px solid var(--line); }
+  /* topline KPI tiles with sparklines */
+  .tiles{ display:grid; grid-template-columns:1fr 1fr; gap:.55rem; }
+  .tile{ border:1px solid var(--line); border-radius:.75rem; padding:.55rem .6rem; background:var(--card); }
+  .tile .tl{ font-size:.62rem; color:var(--sub); text-transform:uppercase; letter-spacing:.03em; }
+  .tile .tv{ font-size:1.02rem; font-weight:800; font-variant-numeric:tabular-nums; margin-top:.1rem; }
+  .tile .tb{ display:flex; align-items:center; justify-content:space-between; margin-top:.15rem; }
+  .tile .ty{ font-size:.66rem; font-weight:700; }
+  .tile .ty.up{ color:var(--good); } .tile .ty.dn{ color:var(--bad); } .tile .ty.fl{ color:var(--sub); }
+  /* qualitative write-up */
+  .spill{ display:inline-flex; gap:.3rem; align-items:center; font-size:.66rem; padding:2px 9px;
+    border-radius:9999px; margin:0 .3rem .3rem 0; border:1px solid; }
+  .spill.good{ background:#d1fae5; color:#065f46; border-color:#a7f3d0; }
+  .spill.bad{ background:#fee2e2; color:#9f1239; border-color:#fecaca; }
+  .spill.warn{ background:#fef3c7; color:#92400e; border-color:#fde68a; }
+  .qcard{ background:var(--card); border:1px solid var(--line); border-left:4px solid var(--accent);
+    border-radius:.75rem; padding:.7rem .8rem; margin-bottom:.6rem; }
+  .qcard h4{ font-size:.76rem; font-weight:700; margin:0 0 .3rem; display:flex; align-items:center; gap:.35rem; }
+  .qcard.bull{ border-left-color:#16a34a; } .qcard.bull h4{ color:#065f46; }
+  .qcard.bear{ border-left-color:#dc2626; } .qcard.bear h4{ color:#7f1d1d; }
+  .qcard.variant{ border-left-color:#a21caf; background:#fdf4ff; } .qcard.variant h4{ color:#86198f; }
+  .qbody{ font-size:.78rem; color:var(--ink); line-height:1.5; }
+  .qbody p{ margin:.35rem 0; } .qbody ul,.qbody ol{ margin:.35rem 0; padding-left:1.1rem; }
+  .qbody li{ margin:.2rem 0; } .qbody h5{ font-size:.74rem; font-weight:700; margin:.5rem 0 .2rem; }
+  .qbody h6{ font-size:.7rem; font-weight:600; color:var(--sub); margin:.4rem 0 .15rem; }
+  .qbody code{ background:#eef2f7; padding:0 .25rem; border-radius:.25rem; font-size:.72rem; }
+  .qtag{ font-style:italic; color:var(--sub); font-size:.8rem; margin:.1rem 0 .5rem; }
+  .qgrid{ display:grid; gap:0; }
+  table.sens td{ text-align:center; font-variant-numeric:tabular-nums; font-size:.7rem; border:1px solid #f1f5f9; }
+  table.sens th{ font-size:.62rem; text-align:center; }
+  table.sens th:first-child{ text-align:center; }
+  table.sens thead th{ background:var(--bg); }
+  .peerpill{ display:inline-block; font-family:ui-monospace,monospace; font-size:.68rem; padding:2px 8px;
+    margin:0 .3rem .3rem 0; border-radius:.4rem; background:#eef2ff; color:#3730a3; border:1px solid #c7d2fe; }
 </style>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 </head>
@@ -304,6 +349,34 @@ function chDonut(items){
   return queue(cfg, Math.max(150, data.length*22+64));
 }
 
+// vertical bar chart from explicit datasets [{label,data,color}]; opts.stacked groups them.
+function chBarsDS(labels, datasets, fmt, opts){
+  opts=opts||{}; fmt=fmt||money;
+  const ds=(datasets||[]).filter(d=>d&&d.data&&d.data.some(v=>v!=null));
+  if(!ds.length) return '';
+  const cfg={ type:'bar', data:{ labels, datasets: ds.map((d,i)=>({
+      label:d.label, data:d.data.map(v=>v==null?null:v),
+      backgroundColor:d.color||PALETTE[i%PALETTE.length],
+      borderRadius:opts.stacked?2:4, maxBarThickness:opts.stacked?30:20,
+      stack:opts.stacked?'s':undefined })) },
+    options:{ interaction:{mode:'index',intersect:false}, layout:{padding:{top:4,right:4}},
+      plugins:{ legend:{display:ds.length>1, position:'bottom'},
+        tooltip:{callbacks:{label:x=>x.dataset.label+': '+fmt(x.raw)}} },
+      scales:{ x:{stacked:!!opts.stacked, grid:{display:false},
+          ticks:{maxRotation:0, autoSkip:true, autoSkipPadding:12}},
+        y:{stacked:!!opts.stacked, grid:{color:'#f1f5f9'}, border:{display:false},
+          ticks:{callback:v=>fmt(v), maxTicksLimit:5}} } } };
+  return queue(cfg, opts.h||170);
+}
+// vertical bars resolving series by key from [{label,key,color}]; labels are years (forecast 'e').
+function chVBars(c, rows, fmt, opts){
+  fmt=fmt||money; opts=opts||{};
+  const yrs=c.yrs, F=ff(c);
+  const labels=yrs.map((y,i)=> i>=F ? (y+'e') : (''+y));
+  const ds=rows.map(r=>({label:r.label, color:r.color, data:ser(c,r.key)||yrs.map(()=>null)}));
+  return chBarsDS(labels, ds, fmt, opts);
+}
+
 // analyst target range: low–high band + mean + current markers (kept as HTML diagram).
 function chRange(low,mean,high,cur){
   const pts=[low,mean,high,cur].filter(v=>v!=null); if(pts.length<2) return '';
@@ -313,6 +386,279 @@ function chRange(low,mean,high,cur){
   return `<div class="range"><div class="rtrack">${band}${mk(mean,'mean')}${mk(cur,'cur')}</div>
     <div class="rlab"><span>${px(low)}</span><span>${px(high)}</span></div>
     <div class="lg"><span><i class="band"></i>Analyst low–high</span><span><i style="background:var(--accent)"></i>Mean ${px(mean)}</span><span><i style="background:var(--ink)"></i>Current ${px(cur)}</span></div></div>`;
+}
+
+// radar: axes=[{label,ord}] ord 1..3; draws the shape + a dashed pass ring at 2.
+function chRadar(axes){
+  const good=axes.filter(a=>a&&a.ord!=null);
+  if(good.length<3) return '';
+  const cfg={ type:'radar',
+    data:{ labels:good.map(a=>a.label),
+      datasets:[
+        { label:'Pass line', data:good.map(()=>2), borderColor:'#94a3b8', borderWidth:1,
+          borderDash:[5,4], pointRadius:0, fill:false },
+        { label:'This company', data:good.map(a=>a.ord), borderColor:'#4338ca',
+          backgroundColor:alpha('#4338ca',0.22), borderWidth:2, pointBackgroundColor:'#4338ca', pointRadius:3 },
+      ] },
+    options:{ plugins:{ legend:{display:false},
+        tooltip:{callbacks:{label:x=>x.dataset.label+': '+['—','Weak','Fair','Strong'][x.raw]}} },
+      scales:{ r:{ min:0, max:3, ticks:{display:false, stepSize:1},
+        grid:{color:'#e2e8f0'}, angleLines:{color:'#e2e8f0'},
+        pointLabels:{ font:{size:10}, color:'#475569' } } } } };
+  return queue(cfg, 230);
+}
+
+// meter/gauge tile — HTML bar with a fill and a threshold mark line.
+function meterTile(label, valStr, status, fill, markPct, markLabel){
+  const col=status==='good'?'#16a34a':status==='warn'?'#d97706':status==='bad'?'#dc2626':'#94a3b8';
+  const f=Math.max(0,Math.min(100,(fill||0)*100)).toFixed(0);
+  const mk=(markPct!=null)?`<i class="mmark" style="left:${Math.max(0,Math.min(100,markPct*100)).toFixed(0)}%"></i>`:'';
+  return `<div class="meter">
+    <div class="mtop"><span class="mlab">${label}</span><span class="mval" style="color:${col}">${valStr}</span></div>
+    <div class="mtrack"><i class="mfill" style="width:${f}%;background:${col}"></i>${mk}</div>
+    ${markLabel?`<div class="mnote">${markLabel}</div>`:''}
+  </div>`;
+}
+
+// ---------- financial-health scoring (ported from desktop HEALTH_RULES) ----------
+const HEALTH_RULES={
+  OpMargin:{good:0.20,fair:0.10,dir:'h'}, NIMargin:{good:0.15,fair:0.07,dir:'h'},
+  EBITDAMargin:{good:0.25,fair:0.15,dir:'h'}, GrossMargin:{good:0.40,fair:0.25,dir:'h'},
+  EBITMargin:{good:0.18,fair:0.10,dir:'h'}, NPIMargin:{good:0.65,fair:0.55,dir:'h'},
+  ROA:{good:0.08,fair:0.04,dir:'h'}, ROE:{good:0.15,fair:0.08,dir:'h'}, ROIC:{good:0.12,fair:0.06,dir:'h'},
+  LeverageRatio:{good:0.50,fair:0.70,dir:'l'}, GearingRatio:{good:0.40,fair:0.50,dir:'l'}, DebtEBITDA:{good:2.0,fair:4.0,dir:'l'},
+  InterestCoverage:{good:8.0,fair:3.0,dir:'h'}, InterestCoverageRatio:{good:3.0,fair:1.5,dir:'h'},
+  Tier1Ratio:{good:0.14,fair:0.10,dir:'h'}, CET1Ratio:{good:0.13,fair:0.10,dir:'h'}, NPLRatio:{good:0.02,fair:0.04,dir:'l'},
+  NIM:{good:0.03,fair:0.02,dir:'h'}, EfficiencyRatio:{good:0.50,fair:0.60,dir:'l'},
+  DPUYield:{good:0.06,fair:0.04,dir:'h'}, Occupancy:{good:0.95,fair:0.90,dir:'h'},
+  WALE:{good:4.0,fair:2.5,dir:'h'}, PNAV:{good:1.0,fair:1.2,dir:'l'},
+};
+function healthScore(key,val){
+  if(val==null||!isFinite(val)) return null;
+  const r=HEALTH_RULES[key]; if(!r) return null;
+  const pg=r.dir==='h'?val>=r.good:val<=r.good;
+  const pf=r.dir==='h'?val>=r.fair:val<=r.fair;
+  return pg?'good':pf?'fair':'poor';
+}
+const healthOrd=s=>s==='good'?3:s==='fair'?2:s==='poor'?1:null;
+
+// Financial Health Profile — radar + meter gauges (sector-aware). Returns a card.
+function healthProfile(c){
+  const bank=c.sec==='bank', ins=(c.cat==='Insurance');
+  const radarSpec=bank?[
+    ['Profitability',['NIMargin','NIM','OpMargin']],['Returns',['ROE','ROA']],
+    ['Efficiency',['EfficiencyRatio']],['Asset quality',['NPLRatio']],['Capital',['CET1Ratio','Tier1Ratio']],
+  ]:ins?[
+    ['Profitability',['NIMargin','OpMargin']],['Returns',['ROE','ROA']],
+    ['Growth',['RevenueGrowth','EPSGrowth']],['Leverage',['LeverageRatio']],['Coverage',['InterestCoverage']],
+  ]:[
+    ['Profitability',['NPIMargin','NIMargin','OpMargin','EBITDAMargin','GrossMargin','EBITMargin']],
+    ['Returns',['ROE','ROA','ROIC']],['Leverage',['GearingRatio','LeverageRatio','DebtEBITDA']],
+    ['Coverage',['InterestCoverageRatio','InterestCoverage']],['Capital/Yield',['CET1Ratio','Tier1Ratio','DPUYield']],
+  ];
+  const axes=[];
+  for(const [label,keys] of radarSpec){
+    for(const k of keys){ const ord=healthOrd(healthScore(k,last(c,k))); if(ord!=null){ axes.push({label,ord}); break; } }
+  }
+  const meterSpec=bank?[
+    {label:'Net interest margin',keys:['NIM','NIMargin'],fmt:pct,norm:v=>v/0.05,mark:0.025/0.05,markLabel:'2.5% strong'},
+    {label:'Return on equity',keys:['ROE'],fmt:pct,norm:v=>v/0.20,mark:0.10/0.20,markLabel:'10% strong'},
+    {label:'CET1 ratio',keys:['CET1Ratio','Tier1Ratio'],fmt:pct,norm:v=>v/0.20,mark:0.07/0.20,markLabel:'7% min'},
+    {label:'NPL ratio',keys:['NPLRatio'],fmt:pct,norm:v=>v/0.05,mark:0.02/0.05,markLabel:'2% cap',lower:true},
+  ]:[
+    {label:'Operating margin',keys:['OpMargin','NIMargin','NPIMargin','EBITDAMargin','GrossMargin'],fmt:pct,norm:v=>v/0.40,mark:0.20/0.40,markLabel:'20% strong'},
+    {label:'Return on equity',keys:['ROE','ROA','ROIC'],fmt:pct,norm:v=>v/0.30,mark:0.15/0.30,markLabel:'15% strong'},
+    {label:'Leverage',keys:['LeverageRatio','GearingRatio'],fmt:pct,norm:v=>v,mark:0.50,markLabel:'50% cap',lower:true},
+    {label:'Interest coverage',keys:['InterestCoverageRatio','InterestCoverage'],fmt:mult,norm:v=>v/16,mark:3/16,markLabel:'3x floor'},
+  ];
+  const tiles=meterSpec.map(sp=>{
+    let key=null,val=null;
+    for(const k of sp.keys){ const vv=last(c,k); if(vv!=null&&isFinite(vv)){ key=k; val=vv; break; } }
+    if(key==null) return '';
+    const sc=healthScore(key,val);
+    const status=sc==='good'?'good':sc==='fair'?'warn':sc==='poor'?'bad':'na';
+    let fill=sp.norm(val); if(sp.lower) fill=1-Math.min(1,Math.max(0,fill));
+    let mk=sp.mark; if(sp.lower&&mk!=null) mk=1-mk;
+    return meterTile(sp.label, sp.fmt(val), status, fill, mk, sp.markLabel);
+  }).filter(Boolean).join('');
+  if(axes.length<3 && !tiles) return '';
+  const passN=axes.filter(a=>a.ord>=2).length;
+  const radar=chRadar(axes);
+  const score=axes.length?`<div class="hscore">${axes.map(a=>{
+      const col=a.ord>=3?'#16a34a':a.ord>=2?'#d97706':'#dc2626', lbl=a.ord>=3?'Strong':a.ord>=2?'Fair':'Weak';
+      return `<div class="hrow"><span>${a.label}</span><b style="color:${col}">${lbl}</b></div>`;}).join('')}</div>`:'';
+  const body=(radar?radar+(axes.length?`<div class="muted" style="font-size:.62rem;text-align:center;margin:-.1rem 0 .4rem">${passN}/${axes.length} dimensions at or above the pass line · dashed ring = pass</div>`:''):'')
+    + score + (tiles?`<div class="meters">${tiles}</div>`:'');
+  return card('🩺 Financial health', body);
+}
+
+// ---------- strategic / capital cards (ported from desktop Financials) ----------
+// Capital allocation — stacked bars of CapEx / Acquisitions / Buybacks / Dividends.
+function capAllocCard(c){
+  const ca=c.ca; if(!ca) return '';
+  const yrs=c.yrs, F=ff(c);
+  const labels=yrs.map((y,i)=> i>=F ? (y+'e') : (''+y));
+  const defs=[['CapEx','capex','#4338ca'],['Acquisitions','acq','#7c3aed'],
+    ['Buybacks','buybacks','#0891b2'],['Dividends','dividends','#16a34a']];
+  const ds=defs.map(([lab,k,col])=>({label:lab, color:col,
+      data:Array.isArray(ca[k])?ca[k].map(v=>v==null?null:Math.abs(v)):null}))
+    .filter(d=>d.data&&d.data.some(v=>v!=null));
+  if(!ds.length) return '';
+  const ch=chBarsDS(labels, ds, money, {stacked:true, h:185});
+  return ch?card('Capital allocation', ch):'';
+}
+// ROIC vs WACC — value creation line (WACC drawn as a flat reference).
+function roicWaccCard(c){
+  const roic=ser(c,'ROIC'); if(!roic||!roic.some(v=>v!=null)) return '';
+  const w=(c.va||{}).WACC;
+  const rows=[{label:'ROIC',key:'ROIC',color:'#16a34a'}];
+  if(w!=null&&isFinite(w)) rows.push({label:'WACC',key:c.yrs.map(()=>w),color:'#dc2626'});
+  const ch=chLine(c, rows, pct);
+  return ch?card('ROIC vs WACC', ch):'';
+}
+// Working-capital cycle — DSO / DIO / DPO / CCC in days.
+function workingCapCard(c){
+  const rows=[{label:'DSO',key:'DSO'},{label:'DIO',key:'DIO'},{label:'DPO',key:'DPO'},
+    {label:'CCC',key:'CCC',color:'#0f172a'}].filter(r=>{ const a=ser(c,r.key); return a&&a.some(v=>v!=null); });
+  if(rows.length<2) return '';
+  const ch=chLine(c, rows, num);
+  return ch?card('Working-capital cycle (days)', ch):'';
+}
+// Total shareholder yield — buyback + dividend yield, bars.
+function shYieldCard(c){
+  const a=ser(c,'ShareholderYield'); if(!a||!a.some(v=>v!=null)) return '';
+  const ch=chVBars(c,[{label:'Shareholder yield',key:'ShareholderYield',color:'#0891b2'}], pct, {h:150});
+  return ch?card('Total shareholder yield', ch):'';
+}
+// Segment trend — multi-year stacked bars (complements the LFY donut).
+function segTrendCard(c){
+  if(!c.seg||typeof c.seg!=='object') return '';
+  const fys=Object.keys(c.seg).sort(); if(fys.length<2) return '';
+  const lastSeg=c.seg[fys[fys.length-1]]||{};
+  const ordered=[...new Set([
+    ...Object.entries(lastSeg).filter(([,v])=>v!=null&&isFinite(v)).sort((a,b)=>Math.abs(b[1])-Math.abs(a[1])).map(e=>e[0]),
+    ...fys.flatMap(f=>Object.keys(c.seg[f]||{})) ])];
+  const labels=fys.map(f=>f.replace('FY',''));
+  const ds=ordered.map((nm,i)=>({label:nm, color:PALETTE[i%PALETTE.length],
+      data:fys.map(f=>{ const v=(c.seg[f]||{})[nm]; return (v!=null&&isFinite(v))?Math.abs(v):null; })}))
+    .filter(d=>d.data.some(v=>v!=null));
+  if(ds.length<2) return '';
+  const ch=chBarsDS(labels, ds, money, {stacked:true, h:195});
+  return ch?card('Segment trend', ch, fys.length+'y'):'';
+}
+// Diluted share-count history — buyback (down) vs dilution (up) shown as bars.
+function shareCountCard(c){
+  const a=ser(c,'Shares'); if(!a||!a.some(v=>v!=null)) return '';
+  const ch=chVBars(c,[{label:'Diluted shares (m)',key:'Shares',color:'#64748b'}], num, {h:150});
+  return ch?card('Share-count history', ch):'';
+}
+
+// ---------- DCF sensitivity heat-grid (ported from desktop computeDCFSensitivity) ----------
+function computeDCFSensitivity(fcff5, wacc, g, cashAdj, shares, wOff, gOff){
+  if(!Array.isArray(fcff5)||fcff5.length!==5||fcff5.some(v=>v==null)) return null;
+  if(wacc==null||g==null||!shares) return null;
+  const m=[];
+  for(const go of gOff){ const row=[]; const gA=g+go;
+    for(const wo of wOff){ const wA=wacc+wo;
+      if(wA<=gA){ row.push(null); continue; }
+      let pv=0; for(let t=0;t<5;t++) pv+=fcff5[t]/Math.pow(1+wA,t+1);
+      const tv=fcff5[4]*(1+gA)/(wA-gA); const ev=pv+tv/Math.pow(1+wA,5);
+      row.push((ev+(cashAdj||0))/shares); }
+    m.push(row); }
+  return m;
+}
+function sensCell(v,cur){
+  if(v==null) return 'color:#cbd5e1';
+  if(cur==null||cur===0) return '';
+  const r=v/cur-1;
+  if(r>0.15) return 'background:#dcfce7;color:#166534';
+  if(r<-0.15) return 'background:#fee2e2;color:#991b1b';
+  return 'background:#fef3c7;color:#92400e';
+}
+function sensitivityCard(c){
+  if(isReit(c)) return '';
+  const v=c.va||{}, di=c.dcf||{};
+  const wacc=v.WACC, g=(v.TerminalGrowth!=null?v.TerminalGrowth:0.025);
+  const fcff5=di.FCFF_fcst, shares=di.Shares_lfy;
+  const cashAdj=(di.Cash_lfy||0)+(di.STI_lfy||0)+(di.STD_lfy||0)+(di.LTD_lfy||0);
+  const wOff=[-0.02,-0.01,0,0.01,0.02], gOff=[-0.01,-0.005,0,0.005,0.01];
+  const m=computeDCFSensitivity(fcff5, wacc, g, cashAdj, shares, wOff, gOff);
+  if(!m) return '';
+  const cur=curPrice(c);
+  const head=`<tr><th>g↓ / WACC→</th>${wOff.map(o=>`<th>${pct2(wacc+o)}</th>`).join('')}</tr>`;
+  const body=m.map((row,i)=>`<tr><th>${pct2(g+gOff[i])}</th>${row.map(x=>`<td style="${sensCell(x,cur)}">${x==null?'—':px(x)}</td>`).join('')}</tr>`).join('');
+  const tbl=`<div class="tscroll"><table class="sens"><thead>${head}</thead><tbody>${body}</tbody></table></div>`;
+  const note=`<div class="muted" style="font-size:.64rem;margin-top:.35rem">Implied DCF price / share across WACC (columns) × terminal growth (rows). Green ≥ +15% vs ${cur!=null?px(cur):'current'}, red ≤ −15%.</div>`;
+  return card('DCF sensitivity', tbl+note);
+}
+
+// ---------- REIT leverage meters + income bridge (ported from desktop) ----------
+function reitLeverageCard(c){
+  const R=c.reit||{};
+  const gearing=last(c,'GearingRatio'), icr=last(c,'InterestCoverageRatio');
+  const netDebt=last(c,'NetDebt'), npi=last(c,'NPI'), te=last(c,'TE');
+  const distCov=last(c,'DistributionCoverage');
+  const tiles=[];
+  if(gearing!=null){ const s=gearing<=0.40?'good':gearing<=0.50?'warn':'bad';
+    tiles.push(meterTile('MAS gearing', pct(gearing), s, gearing/0.60, 0.50/0.60, '50% cap')); }
+  if(icr!=null){ const s=icr>=3?'good':icr>=1.5?'warn':'bad';
+    tiles.push(meterTile('Interest coverage', mult(icr), s, Math.min(1,icr/8), 1.5/8, '1.5× floor')); }
+  if(netDebt!=null&&npi){ const r=netDebt/npi; const s=r<=6?'good':r<=8?'warn':'bad';
+    tiles.push(meterTile('Net debt / NPI', mult(r), s, 1-Math.min(1,r/12), 1-6/12, '≤6× healthy')); }
+  if(netDebt!=null&&te){ const r=netDebt/te; const s=r<=0.6?'good':r<=1?'warn':'bad';
+    tiles.push(meterTile('Net debt / equity', mult(r), s, 1-Math.min(1,r/2), 1-1/2, '≤1× healthy')); }
+  if(distCov!=null){ const s=distCov>=1?'good':distCov>=0.9?'warn':'bad';
+    tiles.push(meterTile('Distribution coverage', mult(distCov), s, Math.min(1,distCov/1.6), 1/1.6, '1.0× floor')); }
+  const body=tiles.filter(Boolean).join('');
+  return body?card('🩺 Leverage & coverage', `<div class="meters">${body}</div>`):'';
+}
+function reitIncomeBridge(c){
+  const I=(c.reit||{}).income_lfy; if(!I) return '';
+  const steps=[
+    I.rev!=null?{label:'Revenue',value:I.rev,color:'#4338ca'}:null,
+    I.npi!=null?{label:'NPI',value:I.npi,color:'#0891b2'}:null,
+    I.op!=null?{label:'Operating profit',value:I.op,color:'#0ea5e9'}:null,
+    I.ni!=null?{label:'Net income',value:I.ni,color:'#16a34a'}:null,
+    I.distInc!=null?{label:'Distributable',value:I.distInc,color:'#7c3aed'}:null,
+  ].filter(Boolean);
+  if(steps.length<2) return '';
+  const ch=chHBars(steps, money);
+  return ch?card('Income bridge · LFY', ch):'';
+}
+
+// ---------- markdown → HTML (professional write-up formatting) ----------
+function mdInline(t){
+  return esc(t)
+    .replace(/\*\*([^*]+)\*\*/g,'<strong>$1</strong>')
+    .replace(/(^|[^*])\*([^*\s][^*]*?)\*(?!\*)/g,'$1<em>$2</em>')
+    .replace(/`([^`]+)`/g,'<code>$1</code>');
+}
+function mdToHtml(md){
+  if(md==null) return '';
+  if(Array.isArray(md)) md=md.map(x=>'- '+x).join('\n');
+  const lines=String(md).split(/\r?\n/); const out=[]; let lt=null;
+  for(const ln of lines){
+    const ul=ln.match(/^\s*[-*•]\s+(.*)/), ol=ln.match(/^\s*(\d+)\.\s+(.*)/);
+    const h3=ln.match(/^###\s+(.*)/), h4=ln.match(/^####\s+(.*)/);
+    if(ul){ if(lt!=='ul'){ if(lt)out.push('</'+lt+'>'); out.push('<ul>'); lt='ul'; } out.push('<li>'+mdInline(ul[1])+'</li>'); }
+    else if(ol){ if(lt!=='ol'){ if(lt)out.push('</'+lt+'>'); out.push('<ol>'); lt='ol'; } out.push('<li>'+mdInline(ol[2])+'</li>'); }
+    else { if(lt){ out.push('</'+lt+'>'); lt=null; }
+      if(h3) out.push('<h5>'+mdInline(h3[1])+'</h5>');
+      else if(h4) out.push('<h6>'+mdInline(h4[1])+'</h6>');
+      else if(ln.trim()) out.push('<p>'+mdInline(ln)+'</p>'); }
+  }
+  if(lt) out.push('</'+lt+'>');
+  return out.join('');
+}
+// sentiment-coloured scorecard pill (Moat/Trend/Management/Predictability/Confidence)
+function scorePill(label,val){
+  if(!val) return '';
+  const v=String(val).trim(), w=v.toLowerCase().split(/[\s—\-]/)[0];
+  const GOOD=['wide','strong','high','widening','improving','cheap','low'], BAD=['none','weak','eroding','deteriorating','rich','expensive'];
+  let tone;
+  if(label==='Predictability'||label==='Confidence') tone=w==='high'?'good':w==='low'?'bad':'warn';
+  else if(BAD.includes(w)) tone='bad'; else if(GOOD.includes(w)) tone='good'; else tone='warn';
+  return `<span class="spill ${tone}">${label}: <b>${esc(v)}</b></span>`;
 }
 
 // ---------- state ----------
@@ -461,6 +807,45 @@ const RATIO_GROUPS=[
   ['Revenue growth','RevenueGrowth',pct],['EPS growth','EPSGrowth',pct],['EPS CAGR 5y','EPSCAGR5y',pct],
 ];
 
+// mini sparkline for an arbitrary historic series (60x22, green up / red down).
+function sparkKey(c,key){
+  const a=ser(c,key); if(!a) return '';
+  const F=ff(c), hist=[]; for(let i=0;i<F;i++){ if(a[i]!=null&&isFinite(a[i])) hist.push({i,v:a[i]}); }
+  if(hist.length<2) return '';
+  const vs=hist.map(h=>h.v), mn=Math.min(...vs), mx=Math.max(...vs), rng=(mx-mn)||1, W=60,H=22;
+  const x0=hist[0].i, x1=hist[hist.length-1].i, xr=(x1-x0)||1;
+  let d=''; hist.forEach(h=>{ const X=(h.i-x0)/xr*W, Y=H-2-(h.v-mn)/rng*(H-4); d+=(d?'L':'M')+X.toFixed(1)+' '+Y.toFixed(1)+' '; });
+  const up=vs[vs.length-1]>=vs[0], col=up?'#16a34a':'#dc2626';
+  return `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" class="spark" preserveAspectRatio="none"><path d="${d}" fill="none" stroke="${col}" stroke-width="1.6" vector-effect="non-scaling-stroke" stroke-linejoin="round" stroke-linecap="round"/></svg>`;
+}
+// Topline snapshot — scale metrics as KPI tiles with value, YoY and a sparkline.
+function toplineTiles(c){
+  const defs=isReit(c)?[
+    ['Revenue','Revenue',money],['Net property income','NPI',money],
+    ['Distributable income','DistIncome',money],['DPU','DPU',dpu],
+    ['NAV / unit','NAVPerUnit',num2],['Portfolio value','PortfolioValue',money],
+  ]:c.sec==='bank'?[
+    ['Total revenue','TotalRevenue',money],['Net interest income','NII',money],
+    ['Pre-provision profit','OperatingProfit',money],['Net income','NetIncome',money],
+    ['EPS','EPS',num2],['Total assets','TA',money],
+  ]:[
+    ['Revenue',(c.tr&&c.tr.Revenue)?'Revenue':'TotalRevenue',money],['Operating profit','OperatingProfit',money],
+    ['EBITDA','EBITDA',money],['Net income','NetIncome',money],
+    ['EPS','EPS',num2],['Free cash flow','FCFF',money],
+  ];
+  const tiles=defs.map(([label,key,fmt])=>{
+    const a=ser(c,key); if(!a) return '';
+    const li_=li(c); const v=at(a,li_); if(v==null||!isFinite(v)) return '';
+    const prev=at(a,li_-1);
+    let yoy=null; if(prev!=null&&isFinite(prev)&&prev!==0) yoy=(v-prev)/Math.abs(prev);
+    const yc=yoy==null?'fl':yoy>0?'up':yoy<0?'dn':'fl';
+    const spk=sparkKey(c,key);
+    return `<div class="tile"><div class="tl">${label}</div><div class="tv">${fmt(v)}</div>
+      <div class="tb"><span class="ty ${yc}">${yoy==null?'—':pctS(yoy)}</span>${spk}</div></div>`;
+  }).filter(Boolean);
+  return tiles.length?`<div class="tiles">${tiles.join('')}</div>`:'';
+}
+
 // ---------- summary grid (sector-aware) ----------
 function summaryGrid(c){
   const mcap=(c.px!=null&&c.sh!=null)?money(c.px*c.sh):'—';
@@ -543,10 +928,13 @@ function tabSummary(c){
   const hist=seriesTable(c, isReit(c)
     ? [['Revenue','Revenue',money],['NPI','NPI',money],['Net income','NetIncome',money],['DPU','DPU',dpu],['NAV/unit','NAVPerUnit',num2],['Gearing','GearingRatio',pct]]
     : [['Revenue',(c.tr&&c.tr.Revenue)?'Revenue':'TotalRevenue',money],['Net income','NetIncome',money],['EPS','EPS',num2],['Op margin','OpMargin',pct],['ROE','ROE',pct]]);
+  const topTiles=toplineTiles(c);
   return hdr
     + verdictCard(c)
     + (trendChart?card(isReit(c)?'Revenue, NPI & distributions':'Revenue & earnings', trendChart):'')
-    + card(`Key metrics · LFY ${c.lfy||''}`, summaryGrid(c))
+    + (topTiles?card(`Topline snapshot · LFY ${c.lfy||''}`, topTiles):'')
+    + healthProfile(c)
+    + card('Key metrics', summaryGrid(c))
     + foldCard('Show figures · history', hist);
 }
 
@@ -626,7 +1014,7 @@ function tabValuation(c){
   ].filter(Boolean);
   const barChart=chHBars(barItems, px, cur);
   const barCard=barChart?card('Implied price vs current',barChart):'';
-  return verdictCard(c)+barCard+rdcfCard+foldCard('Show figures · DCF assumptions',ass);
+  return verdictCard(c)+barCard+sensitivityCard(c)+rdcfCard+foldCard('Show figures · DCF assumptions',ass);
 }
 
 function tabFinancials(c){
@@ -641,8 +1029,9 @@ function tabFinancials(c){
   const inc=foldCard('Show figures · income statement', seriesTable(c, INCOME_ROWS.slice(1)));
   const bs =foldCard('Show figures · balance sheet', seriesTable(c, BALANCE_ROWS.slice(1)));
   const cf =foldCard('Show figures · cash flow', seriesTable(c, CASH_ROWS.slice(1)));
-  const seg=segmentCard(c);
-  const out=[charts,inc,bs,cf,seg].filter(Boolean).join('');
+  const strat=[roicWaccCard(c),capAllocCard(c),shYieldCard(c),workingCapCard(c)].filter(Boolean).join('');
+  const seg=segmentCard(c)+segTrendCard(c);
+  const out=[charts,strat,inc,bs,cf,seg].filter(Boolean).join('');
   return out||'<div class="empty">No statement data.</div>';
 }
 
@@ -651,11 +1040,13 @@ function segmentCard(c){
   const fys=Object.keys(c.seg).sort();
   if(!fys.length) return '';
   const lastFy=fys[fys.length-1]; const seg=c.seg[lastFy]||{};
-  const ents=Object.entries(seg).filter(([k,v])=>v!=null);
+  const ents=Object.entries(seg).filter(([k,v])=>v!=null&&isFinite(v)).sort((a,b)=>Math.abs(b[1])-Math.abs(a[1]));
   if(!ents.length) return '';
-  const tot=ents.reduce((s,[k,v])=>s+Math.abs(v),0)||1;
-  const rows=ents.sort((a,b)=>b[1]-a[1]).map(([k,v])=>`<div class="conc"><div class="cl"><span>${esc(k)}</span><b>${money(v)}</b></div><div class="bar"><i style="width:${Math.max(2,Math.min(100,Math.abs(v)/tot*100)).toFixed(0)}%"></i></div></div>`).join('');
-  return card('Segments', rows, lastFy.replace('FY',''));
+  // donut of the LFY revenue mix (leads); exact $ split kept as a compact list below.
+  const donut=chDonut(ents.map(([k,v])=>({name:k, value:Math.abs(v)})));
+  const tot=ents.reduce((s,[,v])=>s+Math.abs(v),0)||1;
+  const rows=ents.map(([k,v])=>`<div class="conc"><div class="cl"><span>${esc(k)}</span><b>${money(v)} · ${pct(Math.abs(v)/tot)}</b></div><div class="bar"><i style="width:${Math.max(2,Math.min(100,Math.abs(v)/tot*100)).toFixed(0)}%"></i></div></div>`).join('');
+  return card('Segment mix', (donut||'')+rows, lastFy.replace('FY',''));
 }
 
 function tabReitIncome(c){
@@ -696,7 +1087,7 @@ function tabReitIncome(c){
     const body=[rowOf('FFO',R.ffo_series,money),rowOf('AFFO',R.affo_series,money),rowOf('Distributions',R.distr_series,money),rowOf('Capex',R.capex_series,money),rowOf('Units (m)',R.units_series,num)].filter(Boolean).join('');
     if(body) ffoCard=foldCard('Show figures · FFO / AFFO / distributions', `<div class="tscroll"><table><thead><tr><th>FY</th>${head}</tr></thead><tbody>${body}</tbody></table></div>`);
   }
-  const out=[charts,lfyCard,trend,ffoCard].filter(Boolean).join('');
+  const out=[charts,reitIncomeBridge(c),lfyCard,trend,ffoCard].filter(Boolean).join('');
   return out||'<div class="empty">No income data.</div>';
 }
 
@@ -727,7 +1118,7 @@ function tabReitBalance(c){
     ['Operating CF','CFO',money],['Capex','Capex',money],
     ['Distributions paid','DistPaid',money],['Financing CF','CFF',money],
   ]));
-  const out=[charts,bsCard,trend,cf].filter(Boolean).join('');
+  const out=[charts,reitLeverageCard(c),bsCard,trend,cf].filter(Boolean).join('');
   return out||'<div class="empty">No balance-sheet data.</div>';
 }
 
@@ -801,32 +1192,64 @@ function tabMarket(c){
     rangeChart?card('Analyst target range',rangeChart):'',
     tgt?card('Analyst targets',tgt):'',
     ownDonut?card('Ownership',ownDonut):(own?card('Ownership',own):''),
+    shareCountCard(c),
     mult?card('Market multiples',mult):'',
     filings,
   ].filter(Boolean).join('');
   return out||'<div class="empty">No market data.</div>';
 }
 
+// one bordered analysis card — icon title + markdown-rendered body.
+function qCard(icon,title,val,accent,extra){
+  if(!val) return '';
+  const body=(extra==='peer')?peerPills(val):mdToHtml(val);
+  if(!body) return '';
+  return `<div class="qcard"${accent?` style="border-left-color:${accent}"`:''}>
+    <h4${accent?` style="color:${accent}"`:''}>${icon} ${title}</h4><div class="qbody">${body}</div></div>`;
+}
+function peerPills(v){
+  const peers=(Array.isArray(v)?v:String(v).split(/[,;]+/)).map(s=>String(s).trim()).filter(Boolean);
+  if(!peers.length) return '';
+  return `<div>${peers.map(p=>`<span class="peerpill">${esc(p.toUpperCase())}</span>`).join('')}</div>`;
+}
+function confBadge(sc){
+  if(!sc) return '';
+  const w=String(sc).trim().toLowerCase().split(/[\s—\-:]/)[0];
+  const map={high:['good','High confidence'],medium:['warn','Medium confidence'],low:['bad','Low confidence']};
+  const m=map[w]; if(!m) return '';
+  return `<span class="spill ${m[0]}">🎯 <b>${m[1]}</b></span>`;
+}
 function tabAnalysis(c){
   const q=c.q||{};
-  if(!q.tagline&&!q.executive_summary) return `<div class="empty">No write-up yet.<br><span class="muted">On the desktop dashboard, run the Anthropic analysis for ${c.t}.</span></div>`;
-  const sc=q.scorecard?`<div class="sc" style="margin:.6rem 0">${Object.entries(q.scorecard).map(([k,v])=>`<span class="scpill">${esc(k.replace(/_/g,' '))}: <b>${esc(v)}</b></span>`).join('')}</div>`:'';
-  const P=(label,val,color)=> val?`<div class="prose small" style="margin-top:.6rem"><b${color?` style="color:${color}"`:''}>${label}:</b> ${esc(val)}</div>`:'';
-  const L=(label,val)=> val?`<div class="prose small" style="margin-top:.6rem"><b>${label}:</b><br>${mdlist(val)}</div>`:'';
-  const head=card(`Analysis ${q.source?`· ${esc(q.source)}`:''}`.trim(),
-    (q.tagline?`<div class="tag">${esc(q.tagline)}</div>`:'')+sc+
-    (q.executive_summary?`<div class="prose" style="margin-top:.5rem">${esc(q.executive_summary)}</div>`:''),
-    q.source_confidence?`conf: ${esc(q.source_confidence)}`:'');
-  const biz=card('Business & position',
-    P('Business model',q.business_model)+P('Industry & position',q.industry_and_position)+P('Competitive moat',q.competitive_moat));
-  const qual=card('Quality & governance',
-    P('Management',q.management_quality)+P('Earnings quality',q.earnings_quality)+P('Governance',q.governance));
-  const thesis=card('Thesis',
-    P('Bull',q.bull_thesis,'var(--good)')+P('Bear',q.bear_thesis,'var(--bad)')+P('Variant view',q.variant_view)+P("What's priced in",q.whats_priced_in));
-  const fwd=card('Catalysts & risks',
-    L('Catalysts (12–24mo)',q.catalysts_12_24mo)+L('Key risks',q.key_risks)+L('Recent developments',q.recent_developments)+P('Peer set',Array.isArray(q.peer_set)?q.peer_set.join(', '):q.peer_set));
+  if(!q.tagline&&!q.executive_summary) return `<div class="empty">No write-up yet.<br><span class="muted">On the desktop dashboard, run the analysis for ${c.t}.</span></div>`;
+  // header: tagline + scorecard pills + confidence + executive summary (markdown).
+  const pills=[scorePill('Moat',q.scorecard&&q.scorecard.moat),scorePill('Trend',q.scorecard&&q.scorecard.moat_trend),
+    scorePill('Management',q.scorecard&&q.scorecard.management),scorePill('Predictability',q.scorecard&&q.scorecard.predictability),
+    confBadge(q.source_confidence)].filter(Boolean).join('');
+  const head=card('Executive summary',
+    (q.tagline?`<div class="qtag">${esc(q.tagline)}</div>`:'')
+    + (pills?`<div style="margin:.1rem 0 .5rem">${pills}</div>`:'')
+    + (q.executive_summary?`<div class="qbody">${mdToHtml(q.executive_summary)}</div>`:''),
+    q.source?esc(q.source):'');
+  // structured cards — desktop order & accents.
+  const cards=[
+    qCard('🧱','Business model',q.business_model,'#2563eb'),
+    qCard('🏭','Industry & position',q.industry_and_position,'#0ea5e9'),
+    qCard('🛡️','Competitive moat',q.competitive_moat,'#8b5cf6'),
+    qCard('🔍','Earnings quality',q.earnings_quality,'#0d9488'),
+    qCard('💰',"What's priced in",q.whats_priced_in,'#d97706'),
+    qCard('⚡','Catalysts (12–24 mo)',q.catalysts_12_24mo,'#f59e0b'),
+    qCard('📰','Recent developments',q.recent_developments,'#3b82f6'),
+    qCard('⚠️','Key risks',q.key_risks,'#ef4444'),
+    qCard('🧭','Management quality',q.management_quality,'#10b981'),
+    qCard('⚖️','Governance',q.governance,'#6366f1'),
+    qCard('🔗','Peer set',q.peer_set,'#64748b','peer'),
+  ].filter(Boolean).join('');
+  const variant=q.variant_view?`<div class="qcard variant"><h4>🔀 Variant view · what the market may be missing</h4><div class="qbody">${mdToHtml(q.variant_view)}</div></div>`:'';
+  const bull=`<div class="qcard bull"><h4>📈 Bull thesis</h4><div class="qbody">${q.bull_thesis?mdToHtml(q.bull_thesis):'<span class="muted">—</span>'}</div></div>`;
+  const bear=`<div class="qcard bear"><h4>📉 Bear thesis</h4><div class="qbody">${q.bear_thesis?mdToHtml(q.bear_thesis):'<span class="muted">—</span>'}</div></div>`;
   const meta=(q.model||q.generated_at)?`<div class="muted" style="font-size:.66rem;text-align:center;margin-top:.5rem">${[q.model,q.generated_at].filter(Boolean).map(esc).join(' · ')}</div>`:'';
-  return [head,biz,qual,thesis,fwd].filter(x=>x).join('')+meta;
+  return head + (cards?`<div class="qgrid">${cards}</div>`:'') + variant + bull + bear + meta;
 }
 
 function tabGaps(c){
