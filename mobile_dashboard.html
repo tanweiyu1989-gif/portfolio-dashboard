@@ -94,6 +94,12 @@
   .grid{ display:grid; grid-template-columns:1fr 1fr; gap:.55rem .9rem; }
   .kv .k{ font-size:.66rem; color:var(--sub); }
   .kv .v{ font-size:.98rem; font-weight:700; }
+  /* grouped key-value sub-sections */
+  .kvsec{ margin-bottom:.7rem; }
+  .kvsec:last-child{ margin-bottom:0; }
+  .kvh{ font-size:.58rem; text-transform:uppercase; letter-spacing:.06em; color:var(--sub);
+    font-weight:700; margin:0 0 .4rem; padding-bottom:.22rem; border-bottom:1px solid var(--line);
+    display:flex; align-items:center; gap:.3rem; }
   .verrow{ display:flex; justify-content:space-between; align-items:baseline;
     padding:.4rem 0; border-bottom:1px dashed var(--line); gap:.6rem; }
   .verrow:last-child{ border-bottom:0; }
@@ -124,7 +130,10 @@
   .flagli{ font-size:.72rem; padding:.3rem 0; border-bottom:1px solid var(--grid);
     display:flex; gap:.5rem; }
   .flagli .c{ font-weight:700; color:var(--bad); flex:0 0 auto; }
+  .flagli:last-child{ border-bottom:0; }
   .diag{ font-size:.58rem; font-weight:700; color:var(--warn); }
+  details.fold.gapyr{ margin-bottom:.5rem; }
+  details.fold.gapyr>summary .r{ color:var(--warn); font-weight:700; }
   .empty{ color:var(--sub); font-size:.8rem; text-align:center; padding:2rem 0; }
   .muted{ color:var(--sub); }
   a.link{ color:var(--accent); word-break:break-all; }
@@ -773,6 +782,10 @@ function renderList(){
 
 // ---------- shared builders ----------
 function kv(k,v){ return `<div class="kv"><div class="k">${k}</div><div class="v">${v}</div></div>`; }
+// one labelled sub-group of kv tiles; hidden entirely if every tile is empty.
+function kvSection(title, items){ const g=(items||[]).filter(Boolean); return g.length?`<div class="kvsec"><div class="kvh">${title}</div><div class="grid">${g.join('')}</div></div>`:''; }
+// render [[title,[kv,...]],...] as stacked labelled sub-groups.
+function kvGroups(sections){ return (sections||[]).map(s=>kvSection(s[0],s[1])).filter(Boolean).join(''); }
 function card(title,body,right){ if(!body) return ''; return `<div class="card"><h3>${title}${right?`<span class="r">${right}</span>`:''}</h3>${body}</div>`; }
 // collapsible figures block — charts lead, dense number tables tucked behind a tap.
 function foldCard(title,body,right){ if(!body) return ''; return `<details class="fold"><summary><span class="ft">${title}</span>${right?`<span class="r">${right}</span>`:''}<span class="chev">▾</span></summary><div class="fb">${body}</div></details>`; }
@@ -875,6 +888,22 @@ function sparkKey(c,key){
   const up=vs[vs.length-1]>=vs[0], col=up?'#16a34a':'#dc2626';
   return `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" class="spark" preserveAspectRatio="none"><path d="${d}" fill="none" stroke="${col}" stroke-width="1.6" vector-effect="non-scaling-stroke" stroke-linejoin="round" stroke-linecap="round"/></svg>`;
 }
+// column sparkline for a discrete annual series — zero-baseline bars, latest year
+// highlighted, green if the latest ≥ first else red. Annual figures read more
+// honestly as columns than a smoothed line.
+function sparkBars(c,key){
+  const a=ser(c,key); if(!a) return '';
+  const F=ff(c), hist=[]; for(let i=0;i<F;i++){ if(a[i]!=null&&isFinite(a[i])) hist.push(a[i]); }
+  if(hist.length<2) return '';
+  const mn=Math.min(0,...hist), mx=Math.max(0,...hist), rng=(mx-mn)||1, W=64,H=22,n=hist.length;
+  const gap=W/n, bw=Math.min(7,gap*0.66), zeroY=H-(0-mn)/rng*H;
+  const up=hist[hist.length-1]>=hist[0], base=up?'#16a34a':'#dc2626';
+  let bars=''; hist.forEach((v,i)=>{ const y=H-(v-mn)/rng*H; const top=Math.min(y,zeroY);
+    const h=Math.max(1.2,Math.abs(zeroY-y)); const x=i*gap+(gap-bw)/2;
+    const col=(i===n-1)?base:alpha(base,0.4);
+    bars+=`<rect x="${x.toFixed(1)}" y="${top.toFixed(1)}" width="${bw.toFixed(1)}" height="${h.toFixed(1)}" rx="0.7" fill="${col}"/>`; });
+  return `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" class="spark" preserveAspectRatio="none">${bars}</svg>`;
+}
 // Topline snapshot — scale metrics as KPI tiles with value, YoY and a sparkline.
 function toplineTiles(c){
   const defs=isReit(c)?[
@@ -896,57 +925,42 @@ function toplineTiles(c){
     const prev=at(a,li_-1);
     let yoy=null; if(prev!=null&&isFinite(prev)&&prev!==0) yoy=(v-prev)/Math.abs(prev);
     const yc=yoy==null?'fl':yoy>0?'up':yoy<0?'dn':'fl';
-    const spk=sparkKey(c,key);
+    const spk=sparkBars(c,key);
     return `<div class="tile"><div class="tl">${label}</div><div class="tv">${fmt(v)}</div>
       <div class="tb"><span class="ty ${yc}">${yoy==null?'—':pctS(yoy)}</span>${spk}</div></div>`;
   }).filter(Boolean);
   return tiles.length?`<div class="tiles">${tiles.join('')}</div>`:'';
 }
 
-// ---------- summary grid (sector-aware) ----------
+// ---------- summary grid (sector-aware, grouped) ----------
+// only emit a tile when the underlying value exists, so empty sub-groups vanish.
+function kvIf(v,label,fmt){ return (v!=null&&isFinite(v))?kv(label,(fmt||money)(v)):''; }
 function summaryGrid(c){
-  const mcap=(c.px!=null&&c.sh!=null)?money(c.px*c.sh):'—';
-  const base=[kv('Price (FYE)',px(c.px)), kv('Market cap',mcap)];
+  const L=k=>last(c,k);
+  const mcap=(c.px!=null&&c.sh!=null)?c.px*c.sh:null;
+  const market=[ (c.px!=null?kv('Price (FYE)',px(c.px)):''), kvIf(mcap,'Market cap',money) ];
   if(isReit(c)){
-    return gridOf(base.concat([
-      kv('DPU',dpu(last(c,'DPU'))),
-      kv('Distribution yield',pct(last(c,'DistributionYield')||last(c,'DPUYield'))),
-      kv('NAV / unit',num2(last(c,'NAVPerUnit'))),
-      kv('P / NAV',mult(last(c,'PNAV'))),
-      kv('Gearing',pct(last(c,'GearingRatio'))),
-      kv('NPI margin',pct(last(c,'NPIMargin'))),
-      kv('Occupancy',pct(last(c,'Occupancy'))),
-      kv('Implied cap rate',pct(last(c,'ImpliedCapRate'))),
-      kv('WALE (yrs)',num2(last(c,'WALE'))),
-      kv('ROE',pct(last(c,'ROE'))),
-    ]));
+    return kvGroups([
+      ['💵 Market & valuation', market.concat([ kvIf(L('PNAV'),'P / NAV',mult), kvIf(L('NAVPerUnit'),'NAV / unit',num2) ])],
+      ['🎁 Distributions', [ kvIf(L('DPU'),'DPU',dpu), kvIf(L('DistributionYield')!=null?L('DistributionYield'):L('DPUYield'),'Distribution yield',pct) ]],
+      ['🏢 Portfolio', [ kvIf(L('Occupancy'),'Occupancy',pct), kvIf(L('ImpliedCapRate'),'Implied cap rate',pct), kvIf(L('WALE'),'WALE (yrs)',num2) ]],
+      ['⚖️ Leverage & returns', [ kvIf(L('GearingRatio'),'Gearing',pct), kvIf(L('NPIMargin'),'NPI margin',pct), kvIf(L('ROE'),'ROE',pct) ]],
+    ]);
   }
   if(c.sec==='bank'){
-    return gridOf(base.concat([
-      kv('Total revenue',money(last(c,'TotalRevenue'))),
-      kv('Net interest income',money(last(c,'NII'))),
-      kv('Net interest margin',pct(last(c,'NIM'))),
-      kv('Efficiency ratio',pct(last(c,'EfficiencyRatio'))),
-      kv('CET1 ratio',pct(last(c,'CET1Ratio'))),
-      kv('NPL ratio',pct(last(c,'NPLRatio'))),
-      kv('ROE',pct(last(c,'ROE'))),
-      kv('ROA',pct(last(c,'ROA'))),
-      kv('Net income',money(last(c,'NetIncome'))),
-      kv('EPS',num2(last(c,'EPS'))),
-    ]));
+    return kvGroups([
+      ['💵 Market', market],
+      ['💰 Revenue & earnings', [ kvIf(L('TotalRevenue'),'Total revenue',money), kvIf(L('NII'),'Net interest income',money), kvIf(L('NetIncome'),'Net income',money), kvIf(L('EPS'),'EPS',num2) ]],
+      ['📐 Profitability', [ kvIf(L('NIM'),'Net interest margin',pct), kvIf(L('EfficiencyRatio'),'Efficiency ratio',pct), kvIf(L('ROE'),'ROE',pct), kvIf(L('ROA'),'ROA',pct) ]],
+      ['🛡️ Capital & asset quality', [ kvIf(L('CET1Ratio'),'CET1 ratio',pct), kvIf(L('NPLRatio'),'NPL ratio',pct) ]],
+    ]);
   }
-  return gridOf(base.concat([
-    kv('Revenue (LFY)',money(last(c,'Revenue'))),
-    kv('Rev growth 1y',pctS(g1(c,'Revenue'))),
-    kv('Op margin',pct(last(c,'OpMargin'))),
-    kv('Net margin',pct(last(c,'NIMargin'))),
-    kv('Net income',money(last(c,'NetIncome'))),
-    kv('EPS',num2(last(c,'EPS'))),
-    kv('ROE',pct(last(c,'ROE'))),
-    kv('ROIC',pct(last(c,'ROIC'))),
-    kv('Net debt/EBITDA',mult(last(c,'DebtEBITDA'))),
-    kv('FCF yield',pct(last(c,'FCF_Yield'))),
-  ]));
+  return kvGroups([
+    ['💵 Market', market],
+    ['💰 Growth & profitability', [ kvIf(L('Revenue'),'Revenue (LFY)',money), (g1(c,'Revenue')!=null?kv('Rev growth 1y',pctS(g1(c,'Revenue'))):''), kvIf(L('OpMargin'),'Op margin',pct), kvIf(L('NIMargin'),'Net margin',pct) ]],
+    ['📈 Returns & cash', [ kvIf(L('ROE'),'ROE',pct), kvIf(L('ROIC'),'ROIC',pct), kvIf(L('FCF_Yield'),'FCF yield',pct) ]],
+    ['⚖️ Earnings & leverage', [ kvIf(L('NetIncome'),'Net income',money), kvIf(L('EPS'),'EPS',num2), kvIf(L('DebtEBITDA'),'Net debt / EBITDA',mult) ]],
+  ]);
 }
 
 // ---------- valuation verdict (shared) ----------
@@ -1008,19 +1022,25 @@ function tabValuation(c){
     const mcard=card('Fair-value methods vs price', (barChart||'') + methods
       + (R.blended!=null?`<div class="verrow"><span class="lab"><b>Blended</b></span><span class="val">${px(R.blended)}</span></div>`:'')
       + (R.median!=null?`<div class="verrow"><span class="lab"><b>Median</b></span><span class="val">${px(R.median)}</span></div>`:''));
-    const ass=gridOf([
-      R.cap_rate!=null?kv('Cap rate',pct2(R.cap_rate)):'',
-      R.ke!=null?kv('Cost of equity',pct2(R.ke)):'',
-      R.wacc!=null?kv('WACC',pct2(R.wacc)):'',
-      R.rf!=null?kv('Risk-free',pct2(R.rf)):'',
-      R.beta!=null?kv('Beta',num2(R.beta)):'',
-      R.erp!=null?kv('Equity risk prem',pct2(R.erp)):'',
-      R.g!=null?kv('Terminal growth',pct2(R.g)):'',
-      R.g1!=null?kv('Stage-1 growth',pct2(R.g1)):'',
-      R.target_yield!=null?kv('Target yield',pct2(R.target_yield)):'',
-      R.pffo_mult!=null?kv('P/FFO mult',mult(R.pffo_mult)):'',
-      R.ffo_pu!=null?kv('FFO / unit',num2(R.ffo_pu)):'',
-      R.affo_pu!=null?kv('AFFO / unit',num2(R.affo_pu)):'',
+    const ass=kvGroups([
+      ['🏦 Discount rate', [
+        R.ke!=null?kv('Cost of equity',pct2(R.ke)):'',
+        R.wacc!=null?kv('WACC',pct2(R.wacc)):'',
+        R.rf!=null?kv('Risk-free',pct2(R.rf)):'',
+        R.beta!=null?kv('Beta',num2(R.beta)):'',
+        R.erp!=null?kv('Equity risk prem',pct2(R.erp)):'',
+      ]],
+      ['📈 Growth & cap rate', [
+        R.cap_rate!=null?kv('Cap rate',pct2(R.cap_rate)):'',
+        R.g!=null?kv('Terminal growth',pct2(R.g)):'',
+        R.g1!=null?kv('Stage-1 growth',pct2(R.g1)):'',
+      ]],
+      ['🎁 Yield & FFO multiples', [
+        R.target_yield!=null?kv('Target yield',pct2(R.target_yield)):'',
+        R.pffo_mult!=null?kv('P/FFO mult',mult(R.pffo_mult)):'',
+        R.ffo_pu!=null?kv('FFO / unit',num2(R.ffo_pu)):'',
+        R.affo_pu!=null?kv('AFFO / unit',num2(R.affo_pu)):'',
+      ]],
     ]);
     const mkt=gridOf([
       kv('Distribution yield',pct(last(c,'DistributionYield')||last(c,'DPUYield'))),
@@ -1031,24 +1051,32 @@ function tabValuation(c){
     return verdictCard(c)+mcard+card('Market-implied',mkt)+foldCard('Show figures · assumptions',ass);
   }
   const v=c.va||{};
-  const ass=gridOf([
-    v.WACC!=null?kv('WACC',pct2(v.WACC)):'',
-    v.Beta!=null?kv('Beta',num2(v.Beta)):'',
-    v.Ke!=null?kv('Cost of equity',pct2(v.Ke)):'',
-    v.RiskFreeRate!=null?kv('Risk-free',pct2(v.RiskFreeRate)):'',
-    v.MaturedMarketPremium!=null?kv('Mkt risk prem',pct2(v.MaturedMarketPremium)):'',
-    v.CountryRiskPremium!=null?kv('Country risk prem',pct2(v.CountryRiskPremium)):'',
-    v.CostOfDebt!=null?kv('Cost of debt',pct2(v.CostOfDebt)):'',
-    v.AfterTaxKd!=null?kv('After-tax Kd',pct2(v.AfterTaxKd)):'',
-    v.TaxRateDCF!=null?kv('Tax rate (DCF)',pct2(v.TaxRateDCF)):'',
-    v.TerminalGrowth!=null?kv('Terminal growth',pct2(v.TerminalGrowth)):'',
-    v.ExitMultiple!=null?kv('Exit multiple',mult(v.ExitMultiple)):'',
-    v.EnterpriseValue!=null?kv('Enterprise value',money(v.EnterpriseValue)):'',
-    v.EBITDA!=null?kv('EBITDA (val)',money(v.EBITDA)):'',
-    v.FCFF!=null?kv('FCFF (val)',money(v.FCFF)):'',
-    v.TerminalValue!=null?kv('Terminal value',money(v.TerminalValue)):'',
-    v.ImpliedPrice!=null?kv('Implied px (DCF)',px(v.ImpliedPrice)):'',
-    v.ImpliedPriceEVEBITDA!=null?kv('Implied px (EV/EBITDA)',px(v.ImpliedPriceEVEBITDA)):'',
+  const ass=kvGroups([
+    ['🏦 Discount rate', [
+      v.WACC!=null?kv('WACC',pct2(v.WACC)):'',
+      v.Ke!=null?kv('Cost of equity',pct2(v.Ke)):'',
+      v.Beta!=null?kv('Beta',num2(v.Beta)):'',
+      v.RiskFreeRate!=null?kv('Risk-free',pct2(v.RiskFreeRate)):'',
+      v.MaturedMarketPremium!=null?kv('Mkt risk prem',pct2(v.MaturedMarketPremium)):'',
+      v.CountryRiskPremium!=null?kv('Country risk prem',pct2(v.CountryRiskPremium)):'',
+      v.CostOfDebt!=null?kv('Cost of debt',pct2(v.CostOfDebt)):'',
+      v.AfterTaxKd!=null?kv('After-tax Kd',pct2(v.AfterTaxKd)):'',
+      v.TaxRateDCF!=null?kv('Tax rate (DCF)',pct2(v.TaxRateDCF)):'',
+    ]],
+    ['📈 Terminal & multiples', [
+      v.TerminalGrowth!=null?kv('Terminal growth',pct2(v.TerminalGrowth)):'',
+      v.ExitMultiple!=null?kv('Exit multiple',mult(v.ExitMultiple)):'',
+    ]],
+    ['💵 Cash flows & value', [
+      v.EnterpriseValue!=null?kv('Enterprise value',money(v.EnterpriseValue)):'',
+      v.EBITDA!=null?kv('EBITDA (val)',money(v.EBITDA)):'',
+      v.FCFF!=null?kv('FCFF (val)',money(v.FCFF)):'',
+      v.TerminalValue!=null?kv('Terminal value',money(v.TerminalValue)):'',
+    ]],
+    ['🎯 Implied price', [
+      v.ImpliedPrice!=null?kv('Implied px (DCF)',px(v.ImpliedPrice)):'',
+      v.ImpliedPriceEVEBITDA!=null?kv('Implied px (EV/EBITDA)',px(v.ImpliedPriceEVEBITDA)):'',
+    ]],
   ]);
   let rdcfCard='';
   const rd=c.rdcf;
@@ -1076,13 +1104,15 @@ function tabValuation(c){
 
 function tabFinancials(c){
   const isBank=c.sec==='bank';
-  const trendChart=chLine(c, isBank
-      ? [{label:'Total revenue',key:'TotalRevenue'},{label:'Net interest income',key:'NII'},{label:'Net income',key:'NetIncome'}]
-      : [{label:'Revenue',key:(c.tr&&c.tr.Revenue)?'Revenue':'TotalRevenue'},{label:'Operating profit',key:'OperatingProfit'},{label:'Net income',key:'NetIncome'}], money);
+  // magnitude reads better as bars (2 series, grouped); margins/returns stay a line —
+  // two different chart shapes so the two cards don't blur together.
+  const trendChart=chVBars(c, isBank
+      ? [{label:'Total revenue',key:'TotalRevenue',color:'#4338ca'},{label:'Net income',key:'NetIncome',color:'#16a34a'}]
+      : [{label:'Revenue',key:(c.tr&&c.tr.Revenue)?'Revenue':'TotalRevenue',color:'#4338ca'},{label:'Net income',key:'NetIncome',color:'#16a34a'}], money, {h:185});
   const marginChart=chLine(c, isBank
       ? [{label:'Net interest margin',key:'NIM'},{label:'Efficiency',key:'EfficiencyRatio'},{label:'ROE',key:'ROE'}]
       : [{label:'Gross margin',key:'GrossMargin'},{label:'Operating margin',key:'OpMargin'},{label:'Net margin',key:'NIMargin'}], pct);
-  const charts=(trendChart?card('Revenue & profit',trendChart):'')+(marginChart?card('Margins & returns',marginChart):'');
+  const charts=(trendChart?card('Revenue & net income',trendChart):'')+(marginChart?card('Margins & returns',marginChart):'');
   const inc=foldCard('Show figures · income statement', seriesTable(c, INCOME_ROWS.slice(1)));
   const bs =foldCard('Show figures · balance sheet', seriesTable(c, BALANCE_ROWS.slice(1)));
   const cf =foldCard('Show figures · cash flow', seriesTable(c, CASH_ROWS.slice(1)));
@@ -1311,9 +1341,21 @@ function tabAnalysis(c){
 
 function tabGaps(c){
   if(!c.flags.length) return '<div class="empty">No data gaps — every cell has a verified source.</div>';
-  const note=`<div class="prose small" style="margin-bottom:.6rem">These are <b>data-coverage gaps, not calculation errors</b>. Each row is a cell still awaiting a verified source — mostly missing early-year history from before a filing was digitised, plus a few needing a source check. The model computes correctly around them; filling them just extends the history.</div>`;
-  return card(`${c.flags.length} cell(s) awaiting a source`,
-    note + c.flags.map(f=>`<div class="flagli"><span class="c">${esc(f.cell)}</span><span style="flex:1">${esc(f.item||'')} <span class="muted">FY${esc(f.fy)}</span></span><span class="diag">${esc(f.diag)}</span></div>`).join(''));
+  // group by fiscal year so a blank early year collapses to one row ("FY2017 · 30 cells")
+  // instead of spilling 30 near-identical line items.
+  const byFy={};
+  c.flags.forEach(f=>{ const k=(f.fy==null||f.fy==='')?'—':String(f.fy); (byFy[k]=byFy[k]||[]).push(f); });
+  const years=Object.keys(byFy).sort((a,b)=> a==='—'?1 : b==='—'?-1 : Number(b)-Number(a));
+  const total=c.flags.length;
+  const note=`<div class="prose small">These are <b>data-coverage gaps, not calculation errors</b> — each is a cell still awaiting a verified source, mostly early-year history from before a filing was digitised. The model computes correctly around them; filling them just extends the history.</div>`;
+  const summary=`<div class="prose small" style="margin-top:.5rem"><b>${total}</b> cell${total>1?'s':''} awaiting a source across <b>${years.length}</b> ${years.length>1?'years':'year'}. Tap a year to see the line items.</div>`;
+  const blocks=years.map(y=>{
+    const items=byFy[y];
+    const rows=items.map(f=>`<div class="flagli"><span class="c">${esc(f.cell)}</span><span style="flex:1">${esc(f.item||'')}</span><span class="diag">${esc(f.diag)}</span></div>`).join('');
+    const yl=(y==='—')?'Unspecified year':('FY'+esc(y));
+    return `<details class="fold gapyr"><summary><span class="ft">${yl}</span><span class="r">${items.length} cell${items.length>1?'s':''}</span><span class="chev">▾</span></summary><div class="fb">${rows}</div></details>`;
+  }).join('');
+  return card('Data-coverage gaps', note+summary) + blocks;
 }
 
 // ---------- tab wiring ----------
