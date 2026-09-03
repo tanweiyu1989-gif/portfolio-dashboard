@@ -240,6 +240,102 @@
   #toast.show{ opacity:1; transform:translateX(-50%) translateY(0); }
   #toast.err{ background:var(--bad); color:#fff; }
   #toast.ok{ background:var(--good); color:#fff; }
+
+  /* ============================================================
+     V151 — premium visual layer (additive; overrides above)
+     Goal: bring the phone view up to a polished fintech standard
+     without touching the data layer. Pure presentation.
+     ============================================================ */
+  :root{
+    --accent2:#6366f1; --accent-grad:linear-gradient(135deg,#4f46e5,#7c3aed);
+    --elev:0 1px 2px rgba(15,23,42,.04), 0 6px 18px -8px rgba(15,23,42,.14);
+    --elev-hi:0 2px 6px rgba(15,23,42,.06), 0 14px 32px -12px rgba(15,23,42,.22);
+    --ring:rgba(99,102,241,.14);
+  }
+  html[data-theme=dark]{
+    --accent2:#818cf8; --accent-grad:linear-gradient(135deg,#4f46e5,#7c3aed);
+    --elev:0 1px 2px rgba(0,0,0,.4), 0 8px 22px -10px rgba(0,0,0,.6);
+    --elev-hi:0 2px 8px rgba(0,0,0,.5), 0 16px 36px -12px rgba(0,0,0,.7);
+    --ring:rgba(129,140,248,.22);
+  }
+  body{ background:
+      radial-gradient(1200px 480px at 12% -6%, var(--ring), transparent 60%),
+      var(--bg); background-attachment:fixed; }
+
+  /* header — frosted, with a hairline accent underline */
+  header{ backdrop-filter:saturate(180%) blur(12px);
+    background:color-mix(in srgb, var(--headerbg) 88%, transparent);
+    box-shadow:0 1px 0 var(--line), 0 6px 18px -14px rgba(15,23,42,.35); }
+  h1{ font-weight:800; letter-spacing:-.02em; }
+  h1 small{ font-weight:600; }
+  input[type=search]{ box-shadow:var(--shadow); transition:box-shadow .18s,border-color .18s; }
+  input[type=search]:focus{ outline:none; border-color:var(--accent2);
+    box-shadow:0 0 0 3px var(--ring); }
+  .iconbtn{ box-shadow:var(--shadow); transition:transform .12s, box-shadow .18s; }
+  .iconbtn:hover{ box-shadow:var(--elev); }
+
+  /* chips — pill filters with gradient active state + count-ready */
+  .chip{ box-shadow:var(--shadow); transition:all .15s; }
+  .chip.on{ background:var(--accent-grad); border-color:transparent;
+    box-shadow:0 4px 12px -3px var(--ring); }
+
+  /* list rows — elevated cards with a verdict-coloured left rail */
+  .row{ position:relative; overflow:hidden; box-shadow:var(--elev);
+    border-radius:1rem; transition:transform .12s, box-shadow .18s;
+    padding-left:.95rem; }
+  .row::before{ content:""; position:absolute; left:0; top:0; bottom:0; width:4px;
+    background:var(--fc); opacity:.55; }
+  .row.v-BUY::before{ background:var(--good); opacity:1; }
+  .row.v-SELL::before{ background:var(--bad); opacity:1; }
+  .row.v-HOLD::before{ background:var(--hold); opacity:1; }
+  .row:hover{ box-shadow:var(--elev-hi); transform:translateY(-1px); }
+  .row .tk{ font-size:.95rem; letter-spacing:-.01em; }
+  .row .secic{ font-size:1rem; }
+  /* verdict shown as a solid pill */
+  .rt .vpill{ display:inline-block; font-size:.66rem; font-weight:800; letter-spacing:.03em;
+    padding:.14rem .5rem; border-radius:999px; color:#fff; }
+  .vpill.BUY{ background:var(--good); } .vpill.SELL{ background:var(--bad); }
+  .vpill.HOLD{ background:var(--hold); }
+  .rt .up{ font-variant-numeric:tabular-nums; }
+
+  /* cards — layered elevation, hairline, accent-tabbed heading */
+  .card{ border-radius:1rem; box-shadow:var(--elev);
+    border-color:color-mix(in srgb, var(--line) 80%, transparent); }
+  .card h3{ display:flex; align-items:center; gap:.4rem; }
+  .card h3::before{ content:""; width:.24rem; height:.82rem; border-radius:999px;
+    background:var(--accent-grad); flex:0 0 auto; }
+  .card h3 .r{ display:inline-flex; align-items:center; }
+
+  /* KPI tiles — gradient hairline accent + tabular numerics */
+  .tile{ position:relative; overflow:hidden; box-shadow:var(--elev);
+    border-radius:.9rem; background:
+      linear-gradient(var(--card),var(--card)) padding-box,
+      var(--accent-grad) border-box; border:1px solid transparent; }
+  .tile::after{ content:""; position:absolute; left:0; right:0; top:0; height:3px;
+    background:var(--accent-grad); opacity:.9; }
+  .tile .tv{ letter-spacing:-.02em; }
+
+  /* meters & progress — gradient fills read richer than flats */
+  .meter .mfill{ background-image:linear-gradient(90deg, transparent, rgba(255,255,255,.25)); }
+  .bar>i{ background:var(--accent-grad); }
+
+  /* thesis cards — soften into panels */
+  .qcard{ border-radius:.9rem; box-shadow:var(--elev); }
+
+  /* collapsible figure blocks — match card elevation */
+  details.fold{ border-radius:1rem; box-shadow:var(--elev); }
+
+  /* detail tabs — active tab uses the gradient */
+  .tab.on{ background:var(--accent-grad); border-color:transparent;
+    box-shadow:0 4px 12px -3px var(--ring); }
+  .dhead{ backdrop-filter:saturate(180%) blur(12px);
+    background:color-mix(in srgb, var(--headerbg) 88%, transparent); }
+
+  /* chart frames — cleaner border + inner radius */
+  .ch svg{ border-radius:.7rem; }
+  .chbox{ border-radius:.7rem; }
+
+  @media (prefers-reduced-motion: reduce){ *{ transition:none !important; } }
 </style>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
@@ -777,8 +873,8 @@ function renderList(){
   $('#list').innerHTML=rows.map(c=>{
     const v=verdictOf(c);
     const flag=c.flags.length?`<div class="flagdot">⚑ ${c.flags.length} to verify</div>`:'';
-    const ver=v?`<div class="verdict ${cls(v.rec)}">${v.rec}</div><div class="up">${pctS(v.up)}</div>`:'<div class="up muted">—</div>';
-    return `<div class="row" data-t="${c.t}">
+    const ver=v?`<div class="verdict"><span class="vpill ${cls(v.rec)}">${v.rec}</span></div><div class="up">${pctS(v.up)}</div>`:'<div class="up muted">—</div>';
+    return `<div class="row ${v?'v-'+cls(v.rec):''}" data-t="${c.t}">
       <div style="min-width:0">
         <div class="tk"><span class="secic">${secIcon(c)}</span>${c.t} <span class="badge">${c.cat||c.sec}</span></div>
         <div class="nm">${esc(c.n||'')}</div>
