@@ -92,6 +92,33 @@
     letter-spacing:.05em; color:var(--sub); }
   .card h3 .r{ float:right; text-transform:none; letter-spacing:0; font-weight:600; }
   .grid{ display:grid; grid-template-columns:1fr 1fr; gap:.55rem .9rem; }
+  /* interactive valuation slider */
+  .vsl{ }
+  .slhero{ display:flex; align-items:center; justify-content:space-between; gap:.6rem;
+    padding:.6rem .75rem; margin-bottom:.6rem; border-radius:.7rem;
+    background:linear-gradient(135deg,var(--accent),#6366f1); color:#fff; }
+  .slk{ font-size:.6rem; text-transform:uppercase; letter-spacing:.05em; opacity:.85; }
+  .slout{ font-size:1.5rem; font-weight:800; line-height:1.1; }
+  .slchip{ font-size:.82rem; font-weight:800; padding:.2rem .5rem; border-radius:999px;
+    background:rgba(255,255,255,.18); }
+  .slchip.up{ color:#bbf7d0; } .slchip.dn{ color:#fecaca; }
+  .slrow{ margin:.5rem 0 .2rem; }
+  .sllab{ display:flex; justify-content:space-between; font-size:.72rem; color:var(--sub);
+    margin-bottom:.15rem; }
+  .sllab .slv{ font-weight:800; color:var(--ink); }
+  .vsl input[type=range]{ width:100%; accent-color:var(--accent); height:1.4rem; }
+  /* hero fair-value banner (blended figure stands out) */
+  .fvhero{ display:flex; align-items:center; justify-content:space-between; gap:.6rem;
+    padding:.7rem .85rem; margin-bottom:.75rem; border-radius:.9rem;
+    background:linear-gradient(135deg,#0f172a,#334155); color:#fff; border:1px solid var(--line); }
+  html[data-theme=dark] .fvhero{ background:linear-gradient(135deg,#1e293b,#0b1220); }
+  .fvhero .fvk{ font-size:.62rem; text-transform:uppercase; letter-spacing:.05em; opacity:.8; }
+  .fvhero .fvv{ font-size:1.7rem; font-weight:800; line-height:1.05; }
+  .fvhero .fvsub{ font-size:.7rem; opacity:.85; margin-top:.1rem; }
+  .fvhero .fvup{ text-align:right; }
+  .fvhero .fvup .fvpill{ font-size:1rem; font-weight:800; padding:.25rem .6rem; border-radius:999px;
+    background:rgba(255,255,255,.16); display:inline-block; }
+  .fvup .up{ color:#bbf7d0; } .fvup .dn{ color:#fecaca; }
   .kv .k{ font-size:.66rem; color:var(--sub); }
   .kv .v{ font-size:.98rem; font-weight:700; }
   /* grouped key-value sub-sections */
@@ -381,7 +408,13 @@ function money(m){ // input in millions
 const pct  = x => (x==null||isNaN(x))?'—':(x*100).toFixed(1)+'%';
 const pct2 = x => (x==null||isNaN(x))?'—':(x*100).toFixed(2)+'%';
 const pctS = x => (x==null||isNaN(x))?'—':((x>=0?'+':'')+(x*100).toFixed(1)+'%');
-const px   = x => (x==null||isNaN(x))?'—':Number(x).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+// price: 2 dp for ≥100, 3 dp below (so sub-$100 tickers keep their real 3rd decimal
+// instead of being rounded to 2 — consistent within magnitude bands).
+const px   = x => (x==null||isNaN(x))?'—':Number(x).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:(Math.abs(x)>=100?2:3)});
+// signed % vs a base, guarded: a null/zero base can't yield a real % — say so
+// rather than printing a bogus ±100%.
+function upPct(newv, base){ return (newv==null||base==null||!isFinite(base)||base===0)?null:(newv/base-1); }
+function pctSU(v){ return v==null?'<span class="muted">unavailable</span>':pctS(v); }
 const mult = x => (x==null||isNaN(x))?'—':nf(x,2)+'×';
 const num  = x => (x==null||isNaN(x))?'—':nf(x,1);
 const num2 = x => (x==null||isNaN(x))?'—':nf(x,2);
@@ -393,8 +426,8 @@ const cls  = r => (r==='BUY')?'BUY':(r==='SELL')?'SELL':'HOLD';
 const SECTOR_ICON={ reit:'🏢', bank:'🏦', energy:'⛽', corporate:'🏭',
   insurance:'🛡️', materials:'⛏️', infra:'🏗️', healthcare:'⚕️', retail:'🛒', tech:'💻' };
 function secIcon(c){ return SECTOR_ICON[(c.sec||'').toLowerCase()] || '📊'; }
-const TAB_ICON={ Summary:'📋', Valuation:'💰', Financials:'📊', Ratios:'📐',
-  Market:'📈', Analysis:'📝', Income:'🏠', Balance:'⚖️', Property:'🏢' };
+const TAB_ICON={ Summary:'📋', 'Price & Valuation':'💰', Financials:'📊', Ratios:'📐',
+  Ownership:'🧑‍🤝‍🧑', Analysis:'📝', Income:'🏠', Balance:'⚖️', Property:'🏢', Gaps:'⚑' };
 const CHIP_ICON={ All:'🗂', Flagged:'⚑', REIT:'🏢', Bank:'🏦', Banks:'🏦',
   Energy:'⛽', Corporate:'🏭' };
 
@@ -410,6 +443,13 @@ function ser(c,key){ // resolve a series from trends then ratios
 function last(c,key){ return at(ser(c,key), li(c)); }             // last-actual value
 function g1(c,key){ const g=(c.gr||{})[key]; return g?(g['1y']!=null?g['1y']:g['1Y']):null; }
 function isReit(c){ return c.sec==='reit'; }
+// per-year ratio of two trend series (definitional; null where either side missing)
+function ratioSeries(c, numKey, denKey){
+  const a=ser(c,numKey), b=ser(c,denKey); if(!a||!b) return null;
+  const n=Math.max(a.length,b.length), out=[];
+  for(let i=0;i<n;i++){ const x=at(a,i), y=at(b,i); out.push((x!=null&&y!=null&&y!==0)?x/y:null); }
+  return out.some(v=>v!=null)?out:null;
+}
 // Weekly close series (last ~52 pts) — the freshest real market price we carry.
 function wkSeries(c){ const md=c.md||{}; return Array.isArray(md.wk)?md.wk:[]; }
 function latestClose(c){ const w=wkSeries(c);
@@ -481,8 +521,13 @@ function chPrice(wk){
       fill:true,pointRadius:0,borderWidth:1.6,tension:.25}]},
     options:{plugins:{legend:{display:false},tooltip:{callbacks:{title:it=>it[0].label,
         label:it=>px(it.parsed.y)}}},
-      scales:{x:{display:false},y:{position:'right',ticks:{maxTicksLimit:4},grid:{color:GRID}}}}};
-  return queue(cfg,150);
+      scales:{
+        x:{display:true, grid:{display:false},
+           ticks:{maxTicksLimit:6, autoSkip:true, maxRotation:0, font:{size:9},
+             // labels are ISO dates ("2025-09-01"); show YYYY-MM so the axis reads as months
+             callback:function(v){ const l=this.getLabelForValue(v)||''; return String(l).slice(0,7); }}},
+        y:{position:'right', ticks:{maxTicksLimit:4, font:{size:9}, callback:v=>px(v)}, grid:{color:GRID}}}}};
+  return queue(cfg,170);
 }
 
 // ---------- Chart.js infra (canvases queued during render, built after insert) ----------
@@ -843,6 +888,87 @@ function sensitivityCard(c){
   return card('DCF sensitivity', tbl+note);
 }
 
+// ---------- interactive valuation sliders (live client-side recompute) ----------
+// Assumptions the model actually stores per company become sliders; the implied
+// price + upside recompute in-browser as they move. Honest: every driver is real
+// model data, and the math is the model's own (5-yr DCF / definitional multiples).
+let PENDING_SLIDERS=[], SLSEQ=0;
+function dcfPrice(f,wacc,g,cashAdj,shares){
+  if(!Array.isArray(f)||f.length!==5||f.some(v=>v==null)) return null;
+  if(wacc==null||g==null||!shares||wacc<=g) return null;
+  let pv=0; for(let t=0;t<5;t++) pv+=f[t]/Math.pow(1+wacc,t+1);
+  const tv=f[4]*(1+g)/(wacc-g); const ev=pv+tv/Math.pow(1+wacc,5);
+  return (ev+(cashAdj||0))/shares;
+}
+function slInput(id,label,min,max,step,val,fmt){
+  return `<div class="slrow"><div class="sllab"><span>${label}</span><span class="slv" id="${id}v">${fmt(val)}</span></div>
+    <input type="range" id="${id}" min="${min}" max="${max}" step="${step}" value="${val}"></div>`;
+}
+function sliderShell(rid,title,note,rows,cur){
+  return card('🎛️ '+title,
+    `<div id="${rid}" class="vsl">
+       <div class="slhero"><div><div class="slk">Implied price</div><div class="slout">—</div></div>
+         <div class="slup"></div></div>
+       ${rows.join('')}
+       <div class="muted" style="font-size:.64rem;margin-top:.45rem">${note} Current price ${cur!=null?px(cur):'n/a'}. Illustrative sensitivity — drag to explore, not a model forecast.</div>
+     </div>`);
+}
+function interactiveValuation(c){
+  const cur=curPrice(c); const rid='sl'+(SLSEQ++);
+  if(isReit(c)){
+    const R=c.reit||{}, dpu=last(c,'DPU'), ty=R.target_yield;
+    if(dpu!=null&&dpu>0&&ty!=null&&ty>0){
+      const iA=rid+'a', lo=Math.max(0.01,ty*0.5), hi=ty*1.7;
+      PENDING_SLIDERS.push({root:rid, cur, inputs:[{id:iA,fmt:v=>pct2(v)}],
+        compute:vals=>{ const y=vals[0]; return y>0?dpu/y:null; }});
+      return sliderShell(rid,'Target distribution yield',
+        `Implied unit price = DPU (${num2(dpu*1000)/1000}) ÷ the yield you'd demand.`,
+        [slInput(iA,'Target yield',lo.toFixed(4),hi.toFixed(4),0.0005,ty,v=>pct2(v))], cur);
+    }
+    return '';
+  }
+  const di=c.dcf||{}, v=c.va||{};
+  const f=di.FCFF_fcst, shares=di.Shares_lfy;
+  const cashAdj=(di.Cash_lfy||0)+(di.STI_lfy||0)+(di.STD_lfy||0)+(di.LTD_lfy||0);
+  if(Array.isArray(f)&&f.length===5&&f.every(x=>x!=null)&&shares&&v.WACC!=null){
+    const w0=v.WACC, g0=(v.TerminalGrowth!=null?v.TerminalGrowth:0.025);
+    const iA=rid+'a', iB=rid+'b';
+    PENDING_SLIDERS.push({root:rid, cur, inputs:[{id:iA,fmt:v=>pct2(v)},{id:iB,fmt:v=>pct2(v)}],
+      compute:vals=>dcfPrice(f,vals[0],vals[1],cashAdj,shares)});
+    return sliderShell(rid,'DCF — discount rate & terminal growth',
+      `Live 5-year DCF from the model's own free-cash-flow forecast.`,
+      [slInput(iA,'WACC',0.03,0.15,0.0005,w0,v=>pct2(v)),
+       slInput(iB,'Terminal growth',0.00,0.05,0.0005,Math.min(0.05,Math.max(0,g0)),v=>pct2(v))], cur);
+  }
+  const eb=last(c,'EBITDA'), sh=(shares||last(c,'Shares')||c.sh), nd=last(c,'NetDebt');
+  if(eb!=null&&eb>0&&sh&&nd!=null){
+    const em=evMultiples(c)||{}, m0=(em.evEbitda!=null?em.evEbitda:10), iA=rid+'a';
+    PENDING_SLIDERS.push({root:rid, cur, inputs:[{id:iA,fmt:v=>mult(v)}],
+      compute:vals=>{ const m=vals[0]; return (eb*m - nd)/sh; }});
+    return sliderShell(rid,'EV / EBITDA multiple',
+      `Implied price = (EBITDA × multiple − net debt) ÷ shares.`,
+      [slInput(iA,'EV / EBITDA',3,30,0.5,Math.min(30,Math.max(3,m0)),v=>mult(v))], cur);
+  }
+  return '';
+}
+function flushSliders(){
+  PENDING_SLIDERS.forEach(s=>{ const root=document.getElementById(s.root); if(!root) return;
+    const inputs=s.inputs.map(i=>root.querySelector('#'+i.id));
+    const out=root.querySelector('.slout'), upEl=root.querySelector('.slup');
+    function upd(){
+      const vals=s.inputs.map((i,k)=>parseFloat(inputs[k].value));
+      s.inputs.forEach((i,k)=>{ const lab=root.querySelector('#'+i.id+'v'); if(lab) lab.innerHTML=i.fmt(vals[k]); });
+      const price=s.compute(vals);
+      out.innerHTML = (price==null||!isFinite(price))?'—':px(price);
+      const up=upPct(price, s.cur);
+      upEl.innerHTML = up==null?'<span class="muted">vs price: n/a</span>'
+        : `<span class="slchip ${up>=0?'up':'dn'}">${pctS(up)}</span>`;
+    }
+    inputs.forEach(el=>{ if(el) el.oninput=upd; }); upd();
+  });
+  PENDING_SLIDERS=[];
+}
+
 // ---------- REIT leverage meters + income bridge (ported from desktop) ----------
 function reitLeverageCard(c){
   const R=c.reit||{};
@@ -938,11 +1064,11 @@ function match(c){
   return true;
 }
 
-function verdictOf(c){ // prefer model DCF; fall back to EV/EBITDA
-  const v=c.va||{};
-  if(v.Recommendation && v.UpsideDownside!=null) return {rec:v.Recommendation, up:v.UpsideDownside};
-  if(v.RecommendationEVEBITDA && v.UpsideEVEBITDA!=null) return {rec:v.RecommendationEVEBITDA, up:v.UpsideEVEBITDA};
-  return null;
+function verdictOf(c){ // single authoritative fair value → upside recomputed vs real price
+  const p=primaryImplied(c);
+  if(!p) return null;
+  const up=upPct(p.implied, curPrice(c));   // guarded: null if price base 0/missing
+  return {rec:p.rec||recFromUpside(up), up:up};
 }
 
 function renderList(){
@@ -952,7 +1078,7 @@ function renderList(){
   $('#list').innerHTML=rows.map(c=>{
     const v=verdictOf(c);
     const flag=c.flags.length?`<div class="flagdot">⚑ ${c.flags.length} to verify</div>`:'';
-    const ver=v?`<div class="verdict"><span class="vpill ${cls(v.rec)}">${v.rec}</span></div><div class="up">${pctS(v.up)}</div>`:'<div class="up muted">—</div>';
+    const ver=(v&&v.rec)?`<div class="verdict"><span class="vpill ${cls(v.rec)}">${v.rec}</span></div><div class="up">${pctSU(v.up)}</div>`:'<div class="up muted">—</div>';
     return `<div class="row ${v?'v-'+cls(v.rec):''}" data-t="${c.t}">
       <div style="min-width:0">
         <div class="tk"><span class="secic">${secIcon(c)}</span>${c.t} <span class="badge">${c.cat||c.sec}</span></div>
@@ -1123,8 +1249,9 @@ function toplineTiles(c){
 function kvIf(v,label,fmt){ return (v!=null&&isFinite(v))?kv(label,(fmt||money)(v)):''; }
 function summaryGrid(c){
   const L=k=>last(c,k);
-  const mcap=(c.px!=null&&c.sh!=null)?c.px*c.sh:null;
-  const market=[ (c.px!=null?kv('Price (FYE)',px(c.px)):''), kvIf(mcap,'Market cap',money) ];
+  const cp=curPrice(c);
+  const mcap=(cp!=null&&c.sh!=null)?cp*c.sh:null;
+  const market=[ (cp!=null?kv('Price',px(cp)):''), kvIf(mcap,'Market cap',money) ];
   if(isReit(c)){
     return kvGroups([
       ['💵 Market & valuation', market.concat([ kvIf(L('PNAV'),'P / NAV',mult), kvIf(L('NAVPerUnit'),'NAV / unit',num2) ])],
@@ -1150,32 +1277,56 @@ function summaryGrid(c){
 }
 
 // ---------- valuation verdict (shared) ----------
+function recFromUpside(up){ return up==null?null:(up>0.15?'BUY':up<-0.15?'SELL':'HOLD'); }
+// the single most-authoritative fair value for the list pill: DCF > EV/EBITDA > REIT blend > analyst
+function primaryImplied(c){
+  const v=c.va||{};
+  if(v.ImpliedPrice!=null) return {implied:v.ImpliedPrice, rec:v.Recommendation};
+  if(v.ImpliedPriceEVEBITDA!=null) return {implied:v.ImpliedPriceEVEBITDA, rec:v.RecommendationEVEBITDA};
+  if(isReit(c)&&c.reit&&c.reit.blended!=null) return {implied:c.reit.blended, rec:null};
+  const md=c.md||{}; if(md.target_mean!=null)
+    return {implied:md.target_mean, rec:(md.analyst_recommendation?String(md.analyst_recommendation).toUpperCase():null)};
+  return null;
+}
 function verdictCard(c){
   const v=c.va||{}, md=c.md||{};
-  const price=(v.CurrentPrice!=null?v.CurrentPrice:c.px);
+  const price=curPrice(c);   // authoritative current price; guards against a 0/blank base
   let rows='';
-  if(v.Recommendation&&v.UpsideDownside!=null)
-    rows+=`<div class="verrow"><span class="lab">Model DCF → implied ${px(v.ImpliedPrice)}</span><span class="val ${cls(v.Recommendation)}">${v.Recommendation} ${pctS(v.UpsideDownside)}</span></div>`;
-  if(v.RecommendationEVEBITDA&&v.UpsideEVEBITDA!=null)
-    rows+=`<div class="verrow"><span class="lab">EV/EBITDA → implied ${px(v.ImpliedPriceEVEBITDA)}</span><span class="val ${cls(v.RecommendationEVEBITDA)}">${v.RecommendationEVEBITDA} ${pctS(v.UpsideEVEBITDA)}</span></div>`;
-  if(isReit(c)&&c.reit&&c.reit.blended!=null){
-    // REIT fair value is a price implied by blended/median methods; show as upside vs price
-    const b=c.reit.blended, m=c.reit.median;
-    if(price&&b!=null) rows+=`<div class="verrow"><span class="lab">REIT blended fair value ${px(b)}</span><span class="val">${pctS(b/price-1)}</span></div>`;
-    if(price&&m!=null) rows+=`<div class="verrow"><span class="lab">REIT median fair value ${px(m)}</span><span class="val">${pctS(m/price-1)}</span></div>`;
+  // upside always recomputed vs the real current price; if that's missing → "unavailable"
+  // (rather than a bogus ±100% against a zero base).
+  const addRow=(lab, implied, rec)=>{
+    const up=upPct(implied, price);
+    const r=rec||recFromUpside(up);
+    rows+=`<div class="verrow"><span class="lab">${lab}</span><span class="val ${r?cls(r):''}">${r?r+' ':''}${pctSU(up)}</span></div>`;
+  };
+  if(v.ImpliedPrice!=null) addRow(`Model DCF → implied ${px(v.ImpliedPrice)}`, v.ImpliedPrice, v.Recommendation);
+  if(v.ImpliedPriceEVEBITDA!=null) addRow(`EV/EBITDA → implied ${px(v.ImpliedPriceEVEBITDA)}`, v.ImpliedPriceEVEBITDA, v.RecommendationEVEBITDA);
+  if(isReit(c)&&c.reit){
+    if(c.reit.blended!=null) addRow(`REIT blended fair value ${px(c.reit.blended)}`, c.reit.blended, null);
+    if(c.reit.median!=null)  addRow(`REIT median fair value ${px(c.reit.median)}`, c.reit.median, null);
   }
   if(md.target_mean!=null){
     const anrec=md.analyst_recommendation?String(md.analyst_recommendation).toUpperCase():'';
-    rows+=`<div class="verrow"><span class="lab">Analyst consensus${md.target_n_analysts?` (${md.target_n_analysts})`:''} → ${px(md.target_mean)}</span><span class="val">${anrec} ${price?pctS(md.target_mean/price-1):''}</span></div>`;
+    addRow(`Analyst consensus${md.target_n_analysts?` (${md.target_n_analysts})`:''} → ${px(md.target_mean)}`, md.target_mean, anrec||null);
   }
   return card('Valuation verdict', rows||'<div class="muted" style="font-size:.8rem">No valuation output.</div>');
 }
 
 // ---------- per-tab renderers ----------
 function tabSummary(c){
+  const lc=latestClose(c), wk=wkSeries(c);
+  const chg=(lc&&wk.length>1&&wk[0][1])?(lc.p/wk[0][1]-1):null;
+  const priceLine=lc?`<div class="tb" style="align-items:baseline;gap:.5rem;margin-top:.5rem">
+        <span class="tv" style="font-size:1.55rem">${px(lc.p)}</span>
+        ${chg!=null?`<span class="ty ${chg>=0?'up':'dn'}" style="font-size:.85rem;font-weight:700">${pctS(chg)} · 52w</span>`:''}
+      </div><div class="tl" style="margin-top:.05rem">Latest close · ${lc.d}</div>`:'';
+  // consistent header format (David #1): TICKER · TYPE · COUNTRY · LFY YEAR, then name.
+  const meta=[c.t, (c.cat||c.sec), c.ctry, (c.lfy!=null&&c.lfy!==''?('LFY '+c.lfy):null)]
+    .filter(v=>v!=null&&v!=='').map(esc).join(' · ');
   const hdr=`<div class="card">
-      <div style="font-size:1.1rem;font-weight:800">${c.t} <span class="badge">${c.cat||c.sec}</span> <span class="muted" style="font-size:.75rem;font-weight:500">${c.ctry||''} · LFY ${c.lfy||''}</span></div>
-      <div class="muted" style="font-size:.82rem;margin-top:.15rem">${esc(c.n||'')}</div>
+      <div style="font-size:.8rem;font-weight:700;letter-spacing:.01em;color:var(--sub)">${meta}</div>
+      <div style="font-size:1.05rem;font-weight:800;margin-top:.12rem">${esc(c.n||c.t)}</div>
+      ${priceLine}
       ${c.note?`<div class="muted" style="font-size:.68rem;margin-top:.35rem">${esc(c.note)}</div>`:''}
     </div>`;
   const trendRows=isReit(c)
@@ -1193,6 +1344,77 @@ function tabSummary(c){
     + healthProfile(c)
     + card('Key metrics', summaryGrid(c))
     + foldCard('Show figures · history', hist);
+}
+
+// 52-week price history (moved here from the old Market tab) — real dated Yahoo
+// weekly closes, with a month (x) × price (y) axis.
+function priceHistoryCard(c){
+  const wk=wkSeries(c), lc=latestClose(c);
+  if(!lc) return '';
+  const chg=(wk.length>1&&wk[0][1])?(lc.p/wk[0][1]-1):null;
+  const chgHTML=chg!=null?`<span class="ty ${chg>=0?'up':'dn'}" style="font-size:.85rem;font-weight:700">${pctS(chg)} · 52w</span>`:'';
+  const head=`<div class="tb" style="align-items:baseline;gap:.5rem"><span class="tv" style="font-size:1.5rem">${px(lc.p)}</span>${chgHTML}</div>
+    <div class="tl" style="margin-top:.05rem">Latest close · ${lc.d}</div>`;
+  return card('Price · 52-week history', head + chPrice(wk) +
+    `<div class="chcap" style="text-align:left">Source: Yahoo Finance weekly closes · axis: month (x) × price (y).</div>`);
+}
+// Analyst consensus target range + table (moved here to follow the price chart).
+function analystTargetCard(c){
+  const md=c.md||{}, cur=curPrice(c);
+  const rangeChart=chRange(md.target_low, md.target_mean!=null?md.target_mean:md.target_median, md.target_high, cur);
+  const analystNote=md.target_mean!=null
+    ? `<div class="chcap" style="text-align:left;margin-top:.4rem">Source: Yahoo Finance analyst consensus${md.target_n_analysts?` — ${md.target_n_analysts} analysts`:''}.</div>` : '';
+  const tgt=gridOf([
+    md.target_low!=null?kv('Target low',px(md.target_low)):'',
+    md.target_mean!=null?kv('Target mean',px(md.target_mean)):'',
+    md.target_median!=null?kv('Target median',px(md.target_median)):'',
+    md.target_high!=null?kv('Target high',px(md.target_high)):'',
+    md.target_n_analysts!=null?kv('# analysts',md.target_n_analysts):'',
+    md.analyst_recommendation!=null?kv('Consensus',String(md.analyst_recommendation).toUpperCase()):'',
+  ]);
+  return (rangeChart?card('Analyst target range',rangeChart+analystNote):'')
+       + (tgt?card('Analyst targets',tgt):'');
+}
+// Hero fair-value banner — the blended/primary fair value made to stand out.
+function fairValueHero(c){
+  const cur=curPrice(c);
+  let val=null, label='', sub='';
+  if(isReit(c)&&c.reit&&c.reit.blended!=null){
+    val=c.reit.blended; label='Blended fair value';
+    const n=(c.reit.methods||[]).filter(m=>m&&m.value!=null).length; sub=n?`Blend of ${n} valuation methods`:'';
+  } else {
+    const v=c.va||{}, md=c.md||{};
+    if(v.ImpliedPrice!=null){ val=v.ImpliedPrice; label='DCF fair value'; sub='Model discounted cash flow'; }
+    else if(v.ImpliedPriceEVEBITDA!=null){ val=v.ImpliedPriceEVEBITDA; label='EV/EBITDA fair value'; sub='Exit-multiple valuation'; }
+    else if(md.target_mean!=null){ val=md.target_mean; label='Analyst fair value';
+      sub=`Consensus target${md.target_n_analysts?` · ${md.target_n_analysts} analysts`:''}`; }
+  }
+  if(val==null) return '';
+  const up=upPct(val,cur);
+  const upHTML=up==null?'<div class="fvsub">vs price: unavailable</div>'
+    :`<span class="fvpill ${up>=0?'up':'dn'}">${pctS(up)}</span><div class="fvsub">vs ${px(cur)}</div>`;
+  return `<div class="fvhero"><div><div class="fvk">${label}</div><div class="fvv">${px(val)}</div>${sub?`<div class="fvsub">${sub}</div>`:''}</div><div class="fvup">${upHTML}</div></div>`;
+}
+// Market multiples (computed, definitional) — moved to the Ratios tab.
+function marketMultiplesCard(c){
+  const md=c.md||{};
+  const em=evMultiples(c)||{};
+  const peV=(em.pe!=null?em.pe:md.yahoo_trail_pe);
+  const fpeV=(em.fwdPe!=null?em.fwdPe:md.yahoo_fwd_pe);
+  const body=gridOf([
+    peV!=null?kv('Trailing P/E',num2(peV)):'',
+    fpeV!=null?kv('Forward P/E',num2(fpeV)):'',
+    em.evEbitda!=null?kv('EV / EBITDA',mult(em.evEbitda)):'',
+    em.evRev!=null?kv('EV / Revenue',mult(em.evRev)):'',
+    last(c,'P_Book')!=null?kv('P / Book',mult(last(c,'P_Book'))):'',
+    last(c,'P_Revenue')!=null?kv('P / Sales',mult(last(c,'P_Revenue'))):'',
+  ]);
+  if(!body) return '';
+  const note=(em.evEbitda!=null||em.evRev!=null||em.pe!=null)
+    ? (em.src==='model'
+        ? `<div class="chcap" style="text-align:left;margin-top:.4rem">From the model's own currency-consistent figures (EV ÷ EBITDA / revenue). Used for non-USD filers, whose local price and USD financials can't be mixed directly. Banks, insurers & REITs use book / NAV multiples instead.</div>`
+        : `<div class="chcap" style="text-align:left;margin-top:.4rem">Computed: EV = market cap (latest price × shares) + net debt, ÷ trailing EBITDA / revenue.</div>`) : '';
+  return card('Market multiples', body+note);
 }
 
 function tabValuation(c){
@@ -1234,7 +1456,8 @@ function tabValuation(c){
       kv('NAV / unit',num2(last(c,'NAVPerUnit'))),
       kv('Implied cap rate',pct(last(c,'ImpliedCapRate'))),
     ]);
-    return verdictCard(c)+mcard+card('Market-implied',mkt)+foldCard('Show figures · assumptions',ass);
+    return priceHistoryCard(c)+fairValueHero(c)+verdictCard(c)+interactiveValuation(c)
+      +mcard+card('Market-implied',mkt)+analystTargetCard(c)+foldCard('Show figures · assumptions',ass);
   }
   const v=c.va||{};
   const ass=kvGroups([
@@ -1285,7 +1508,46 @@ function tabValuation(c){
   ].filter(Boolean);
   const barChart=chHBars(barItems, px, cur);
   const barCard=barChart?card('Implied price vs current',barChart):'';
-  return verdictCard(c)+barCard+sensitivityCard(c)+rdcfCard+foldCard('Show figures · DCF assumptions',ass);
+  return priceHistoryCard(c)+fairValueHero(c)+verdictCard(c)+interactiveValuation(c)
+    +barCard+analystTargetCard(c)+sensitivityCard(c)+rdcfCard+foldCard('Show figures · DCF assumptions',ass);
+}
+
+// Tech deserves growth/quality lenses, not just revenue & net income. All derived
+// from carried data (definitional ratios): R&D intensity, FCF margin, Rule of 40.
+function techMetricsCard(c){
+  if(c.sec!=='tech') return '';
+  const rev=(c.tr&&c.tr.Revenue)?'Revenue':'TotalRevenue';
+  const rdInt=ratioSeries(c,'RD',rev);
+  const fcfM=ratioSeries(c,'FCFF',rev);
+  const revG=ser(c,'RevenueGrowth');
+  let r40=null;
+  if(revG&&fcfM){ r40=revG.map((g,i)=>(g!=null&&fcfM[i]!=null)?g+fcfM[i]:null); if(!r40.some(v=>v!=null)) r40=null; }
+  const li_=li(c), L=k=>last(c,k);
+  const kpi=gridOf([
+    revG?kv('Revenue growth',pctS(at(revG,li_))):'',
+    L('GrossMargin')!=null?kv('Gross margin',pct(L('GrossMargin'))):'',
+    rdInt?kv('R&D / revenue',pct(at(rdInt,li_))):'',
+    fcfM?kv('FCF margin',pct(at(fcfM,li_))):'',
+    r40?kv('Rule of 40',pctS(at(r40,li_))):'',
+    L('ROIC')!=null?kv('ROIC',pct(L('ROIC'))):'',
+  ]);
+  const cards=[];
+  if(kpi) cards.push(card('Tech KPIs · LFY', kpi));
+  const growthRows=[{label:'Revenue growth',key:'RevenueGrowth'},{label:'EPS growth',key:'EPSGrowth'}].filter(r=>ser(c,r.key));
+  const growthCh=growthRows.length?chLine(c,growthRows,pct):'';
+  if(growthCh) cards.push(card('Growth', growthCh));
+  const marginRows=[];
+  if(ser(c,'GrossMargin')) marginRows.push({label:'Gross margin',key:'GrossMargin'});
+  if(ser(c,'OpMargin'))    marginRows.push({label:'Operating margin',key:'OpMargin'});
+  if(fcfM)                 marginRows.push({label:'FCF margin',key:fcfM});
+  const marginCh=marginRows.length?chLine(c,marginRows,pct):'';
+  if(marginCh) cards.push(card('Margins & cash conversion', marginCh));
+  const qRows=[];
+  if(rdInt) qRows.push({label:'R&D / revenue',key:rdInt});
+  if(r40)   qRows.push({label:'Rule of 40',key:r40});
+  const qCh=qRows.length?chLine(c,qRows,pct):'';
+  if(qCh) cards.push(card('R&D intensity & Rule of 40', qCh));
+  return cards.join('');
 }
 
 function tabFinancials(c){
@@ -1299,12 +1561,14 @@ function tabFinancials(c){
       ? [{label:'Net interest margin',key:'NIM'},{label:'Efficiency',key:'EfficiencyRatio'},{label:'ROE',key:'ROE'}]
       : [{label:'Gross margin',key:'GrossMargin'},{label:'Operating margin',key:'OpMargin'},{label:'Net margin',key:'NIMargin'}], pct);
   const charts=(trendChart?card('Revenue & net income',trendChart):'')+(marginChart?card('Margins & returns',marginChart):'');
+  const tech=techMetricsCard(c);   // tech leads with growth/quality lenses
   const inc=foldCard('Show figures · income statement', seriesTable(c, INCOME_ROWS.slice(1)));
   const bs =foldCard('Show figures · balance sheet', seriesTable(c, BALANCE_ROWS.slice(1)));
   const cf =foldCard('Show figures · cash flow', seriesTable(c, CASH_ROWS.slice(1)));
-  const strat=[roicWaccCard(c),capAllocCard(c),shYieldCard(c),workingCapCard(c)].filter(Boolean).join('');
+  // shareholder yield now lives on the Ownership tab
+  const strat=[roicWaccCard(c),capAllocCard(c),workingCapCard(c)].filter(Boolean).join('');
   const seg=segmentCard(c)+segTrendCard(c);
-  const out=[charts,strat,inc,bs,cf,seg].filter(Boolean).join('');
+  const out=[tech,charts,strat,inc,bs,cf,seg].filter(Boolean).join('');
   return out||'<div class="empty">No statement data.</div>';
 }
 
@@ -1395,6 +1659,34 @@ function tabReitBalance(c){
   return out||'<div class="empty">No balance-sheet data.</div>';
 }
 
+// Top properties (David #4: show location + type). The source feed carries only
+// {name, pct} per asset — no per-property country/type field — so we enrich only
+// with what the data honestly supports: if the whole portfolio sits in one
+// geography we surface that as a shared "portfolio country" chip, and the property
+// type is taken from the REIT's single dominant sector when it's unambiguous.
+// Anything not backed by data stays out (no fabrication) and a caption points the
+// user to the concentration breakdowns above for the portfolio-level split.
+function topPropsCard(c, arr){
+  if(!arr||!arr.length) return '';
+  const R=c.reit||{};
+  const rows=arr.filter(x=>x&&x.pct!=null).map(x=>
+    `<div class="conc"><div class="cl"><span>${esc(x.name||'')}</span><b>${pct(x.pct)}</b></div><div class="bar"><i style="width:${Math.max(2,Math.min(100,x.pct*100)).toFixed(0)}%"></i></div></div>`).join('');
+  if(!rows) return '';
+  // single-geography portfolio → every top property shares that country
+  const geo=(R.geo_conc||[]).filter(g=>g&&g.pct!=null);
+  const oneGeo=(geo.length===1)?geo[0].name:(c.ctry||null);
+  // single-sector portfolio → an unambiguous asset type
+  const sec=(R.sector_conc||[]).filter(s=>s&&s.pct!=null);
+  const oneSec=(sec.length===1)?sec[0].name:null;
+  const chips=[
+    oneGeo?`<span class="slchip">📍 ${esc(oneGeo)}</span>`:'',
+    oneSec?`<span class="slchip">🏷️ ${esc(oneSec)}</span>`:'',
+  ].filter(Boolean).join(' ');
+  const chipLine=chips?`<div style="margin:.1rem 0 .5rem">${chips}<span class="muted" style="font-size:.66rem"> · portfolio-level</span></div>`:'';
+  const cap=`<div class="chcap" style="text-align:left;margin-top:.35rem">Per-property country &amp; type aren't in the source feed; see Geographic &amp; Sector concentration above for the portfolio split.</div>`;
+  return card('Top properties', chipLine + rows + cap);
+}
+
 function tabReitProperty(c){
   const R=c.reit||{};
   const kpi=gridOf([
@@ -1411,7 +1703,7 @@ function tabReitProperty(c){
     kpi?card('Portfolio',kpi):'',
     secD?card('Sector concentration',secD):concList('Sector concentration', R.sector_conc),
     geoD?card('Geographic concentration',geoD):concList('Geographic concentration', R.geo_conc),
-    concList('Top properties', R.top_props),
+    topPropsCard(c, R.top_props),
     concList('Top tenants', R.top_tenants),
     R.wale_source?card('WALE source',`<div class="prose small">${esc(R.wale_source)}</div>`):'',
   ].filter(Boolean).join('');
@@ -1424,56 +1716,22 @@ function tabRatios(c){
   const returnCh=mkChart('Returns',[{label:'ROE',key:'ROE'},{label:'ROA',key:'ROA'},{label:'ROIC',key:'ROIC'}],pct);
   const levCh=mkChart('Leverage & coverage',[{label:'Net debt/EBITDA',key:'DebtEBITDA'},{label:'Interest coverage',key:'InterestCoverage'}],mult);
   const charts=[marginCh,returnCh,levCh].filter(Boolean).join('');
+  const multCard=marketMultiplesCard(c);   // valuation multiples now live in Ratios
   const t=seriesTable(c, RATIO_GROUPS);
-  const out=charts+(t?foldCard('Show figures · ratios (multi-year)',t):'');
+  const out=charts+(multCard||'')+(t?foldCard('Show figures · ratios (multi-year)',t):'');
   return out||'<div class="empty">No ratio data.</div>';
 }
 
+// Ownership tab (formerly "Market"): who holds the stock + shareholder yield.
+// Price chart & analyst targets moved to Price & Valuation; multiples to Ratios.
 function tabMarket(c){
   const md=c.md||{};
-  const tgt=gridOf([
-    md.target_low!=null?kv('Target low',px(md.target_low)):'',
-    md.target_mean!=null?kv('Target mean',px(md.target_mean)):'',
-    md.target_median!=null?kv('Target median',px(md.target_median)):'',
-    md.target_high!=null?kv('Target high',px(md.target_high)):'',
-    md.target_n_analysts!=null?kv('# analysts',md.target_n_analysts):'',
-    md.analyst_recommendation!=null?kv('Consensus',String(md.analyst_recommendation).toUpperCase()):'',
-  ]);
   const own=gridOf([
     md.insider_pct!=null?kv('Insider held',pct(md.insider_pct)):'',
     md.institution_pct!=null?kv('Institutional held',pct(md.institution_pct)):'',
     md.short_pct_float!=null?kv('Short % float',pct(md.short_pct_float)):'',
     md.beta!=null?kv('Beta',num2(md.beta)):'',
   ]);
-  // Market multiples — computed from the model's own financials (definitional
-  // identities), falling back to any Yahoo P/E where a computed one is unavailable.
-  const em=evMultiples(c)||{};
-  const peV=(em.pe!=null?em.pe:md.yahoo_trail_pe);
-  const fpeV=(em.fwdPe!=null?em.fwdPe:md.yahoo_fwd_pe);
-  const multBody=gridOf([
-    peV!=null?kv('Trailing P/E',num2(peV)):'',
-    fpeV!=null?kv('Forward P/E',num2(fpeV)):'',
-    em.evEbitda!=null?kv('EV / EBITDA',mult(em.evEbitda)):'',
-    em.evRev!=null?kv('EV / Revenue',mult(em.evRev)):'',
-  ]);
-  const multNote=(em.evEbitda!=null||em.evRev!=null||em.pe!=null)
-    ? (em.src==='model'
-        ? `<div class="chcap" style="text-align:left;margin-top:.4rem">From the model's own currency-consistent figures (enterprise value ÷ EBITDA / revenue). Used for non-USD filers, whose local share price and USD financials can't be mixed directly. Banks, insurers & REITs use book / NAV multiples instead.</div>`
-        : `<div class="chcap" style="text-align:left;margin-top:.4rem">Computed: EV = market cap (latest price × shares) + net debt, ÷ trailing EBITDA / revenue. Banks, insurers & REITs use book / NAV multiples instead.</div>`) : '';
-  const cur=curPrice(c);
-  const rangeChart=chRange(md.target_low, md.target_mean!=null?md.target_mean:md.target_median, md.target_high, cur);
-  const analystNote=md.target_mean!=null
-    ? `<div class="chcap" style="text-align:left;margin-top:.4rem">Source: Yahoo Finance analyst consensus${md.target_n_analysts?` — ${md.target_n_analysts} analysts`:''}.</div>` : '';
-  // 52-week price history + latest close (real, dated Yahoo weekly data).
-  const wk=wkSeries(c), lc=latestClose(c);
-  let priceCard='';
-  if(lc){
-    const chg=(wk.length>1&&wk[0][1])?(lc.p/wk[0][1]-1):null;
-    const chgHTML=chg!=null?`<span class="ty ${chg>=0?'up':'dn'}" style="font-size:.8rem;font-weight:700">${pctS(chg)} · 52w</span>`:'';
-    const head=`<div class="tb" style="align-items:baseline;gap:.5rem"><span class="tv" style="font-size:1.4rem">${px(lc.p)}</span>${chgHTML}</div>
-      <div class="tl" style="margin-top:.05rem">Latest close · ${lc.d}</div>`;
-    priceCard=card('Price', head + chPrice(wk) + `<div class="chcap" style="text-align:left">Source: Yahoo Finance weekly closes.</div>`);
-  }
   const ownItems=[
     md.insider_pct!=null?{name:'Insider',value:md.insider_pct}:null,
     md.institution_pct!=null?{name:'Institutional',value:md.institution_pct}:null,
@@ -1483,15 +1741,12 @@ function tabMarket(c){
   const ownDonut=chDonut(ownItems);
   const filings=md.sec_filings_url?card('Filings',`<a class="link" href="${esc(md.sec_filings_url)}" target="_blank" rel="noopener">${esc(md.sec_filings_url)}</a>`):'';
   const out=[
-    priceCard,
-    rangeChart?card('Analyst target range',rangeChart+analystNote):'',
-    tgt?card('Analyst targets',tgt):'',
-    ownDonut?card('Ownership',ownDonut):(own?card('Ownership',own):''),
+    ownDonut?card('Ownership',ownDonut+(own||'')):(own?card('Ownership',own):''),
+    shYieldCard(c),
     shareCountCard(c),
-    multBody?card('Market multiples',multBody+multNote):'',
     filings,
   ].filter(Boolean).join('');
-  return out||'<div class="empty">No market data.</div>';
+  return out||'<div class="empty">No ownership data.</div>';
 }
 
 // one bordered analysis card — icon title + markdown-rendered body.
@@ -1568,16 +1823,18 @@ function tabGaps(c){
 
 // ---------- tab wiring ----------
 function tabsFor(c){
+  // order (David): summary → analysis → price & valuation → income → balance →
+  // ratios → property → ownership → gaps
   const base = isReit(c)
-    ? ['Summary','Valuation','Income','Balance','Property','Ratios','Market','Analysis']
-    : ['Summary','Valuation','Financials','Ratios','Market','Analysis'];
+    ? ['Summary','Analysis','Price & Valuation','Income','Balance','Ratios','Property','Ownership']
+    : ['Summary','Analysis','Price & Valuation','Financials','Ratios','Ownership'];
   if(c.flags.length) base.push('Gaps');
   return base;
 }
 const RENDER={
-  'Summary':tabSummary, 'Valuation':tabValuation, 'Financials':tabFinancials,
-  'Income':tabReitIncome, 'Balance':tabReitBalance, 'Property':tabReitProperty,
-  'Ratios':tabRatios, 'Market':tabMarket, 'Analysis':tabAnalysis, 'Gaps':tabGaps,
+  'Summary':tabSummary, 'Analysis':tabAnalysis, 'Price & Valuation':tabValuation,
+  'Financials':tabFinancials, 'Income':tabReitIncome, 'Balance':tabReitBalance,
+  'Ratios':tabRatios, 'Property':tabReitProperty, 'Ownership':tabMarket, 'Gaps':tabGaps,
 };
 
 function renderTabs(c){
@@ -1593,6 +1850,7 @@ function renderTabBody(c){
   const fn=RENDER[curTab]||tabSummary;
   $('#dbody').innerHTML=fn(c)+`<div class="muted" style="font-size:.66rem;text-align:center;margin-top:1rem">Figures mirror the desktop dashboard exactly. <b>e</b> = forecast year. Verify on device; edits happen on the Mac.</div>`;
   flushCharts();
+  flushSliders();
 }
 
 // ---------- helpers ----------
