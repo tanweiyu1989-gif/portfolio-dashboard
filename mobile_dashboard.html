@@ -1404,13 +1404,13 @@ function verdictCard(c){
       // for foreign (non-USD) filers is a currency/unit mismatch: the model's
       // financials and the local share price sit on different scales, so the
       // implied value lands ~10–1000× off. We show the factor honestly.
-      let why='inputs incomplete';
+      let why='awaiting complete model inputs';
       if(implied!=null&&isFinite(implied)&&implied>0&&price!=null&&isFinite(price)&&price>0){
         const r=implied/price;
         const f=r<1?Math.round(1/r):Math.round(r);
-        why=`model output ≈${f}× ${r<1?'below':'above'} local price — currency/scale mismatch, under review`;
+        why=`model output ≈${f}× ${r<1?'below':'above'} local price — likely currency/scale mismatch`;
       }
-      rows+=`<div class="verrow"><span class="lab">${lab}</span><span class="val muted" style="font-weight:600">unavailable — ${why}</span></div>`;
+      rows+=`<div class="verrow" style="align-items:flex-start"><span class="lab">${lab}</span><span class="val muted" style="font-weight:600;white-space:normal;overflow-wrap:anywhere;text-align:right">not shown — ${why}</span></div>`;
       return;
     }
     const up=upPct(implied, price);
@@ -1440,14 +1440,15 @@ function tabSummary(c){
   const lo52=rng.length?Math.min(...rng):null, hi52=rng.length?Math.max(...rng):null;
   const fromLo=(lc&&lo52&&lo52>0)?(lc.p/lo52-1):null;
   const fromHi=(lc&&hi52&&hi52>0)?(lc.p/hi52-1):null;
+  const badge=(txt,col)=>`<span style="display:inline-flex;align-items:baseline;gap:.28rem;padding:.12rem .5rem;border-radius:999px;background:${col}14;color:${col};font-weight:600;font-size:.72rem;white-space:nowrap">${txt}</span>`;
   const rangeBits=[
-    fromLo!=null?`<span style="color:#16a34a;font-weight:600">${pctS(fromLo)} from 52w low</span>`:'',
-    fromHi!=null?`<span style="color:#dc2626;font-weight:600">${pctS(fromHi)} from 52w high</span>`:'',
-  ].filter(Boolean).join(' · ');
+    fromLo!=null?badge(`${pctS(fromLo)} <span style="opacity:.75">from 52w low</span>`,'#16a34a'):'',
+    fromHi!=null?badge(`${pctS(fromHi)} <span style="opacity:.75">from 52w high</span>`,'#dc2626'):'',
+  ].filter(Boolean).join('');
   const priceLine=lc?`<div class="tb" style="align-items:baseline;gap:.5rem;margin-top:.5rem">
         <span class="tv" style="font-size:1.55rem">${px(lc.p)}</span>
         ${chg!=null?`<span class="ty ${chg>=0?'up':'dn'}" style="font-size:.85rem;font-weight:700">${pctS(chg)} · 52w</span>`:''}
-      </div><div class="tl" style="margin-top:.05rem">Latest close · ${lc.d}</div>${rangeBits?`<div class="tl" style="margin-top:.15rem;display:flex;flex-wrap:wrap;gap:.15rem .6rem">${rangeBits}</div>`:''}`:'';
+      </div><div class="tl" style="margin-top:.05rem">Latest close · ${lc.d}</div>${rangeBits?`<div class="tl" style="margin-top:.35rem;display:flex;flex-wrap:wrap;gap:.35rem">${rangeBits}</div>`:''}`:'';
   // consistent header format (David): TICKER · TYPE · COUNTRY, then name.
   // (LFY dropped here — it already leads the Topline snapshot & Key metrics.)
   const meta=[c.t, (c.cat||c.sec), c.ctry]
@@ -1676,7 +1677,7 @@ function overallRecCard(c){
   const col=stance==='CONSTRUCTIVE'?'#16a34a':stance==='CAUTIOUS'?'#dc2626':'#d97706';
   const rows=pillars.map(([lab,txt,s])=>{
     const dot=s>=1.5?'#16a34a':s<=0.75?'#dc2626':'#d97706';
-    return `<div class="verrow"><span class="lab" style="flex:0 0 8.5rem">${lab}</span><span class="val" style="flex:1;text-align:left"><span style="color:${dot}">●</span> ${txt}</span></div>`;
+    return `<div class="verrow" style="align-items:flex-start"><span class="lab" style="flex:0 0 7rem">${lab}</span><span class="val" style="flex:1;min-width:0;text-align:left;white-space:normal;overflow-wrap:anywhere;word-break:break-word"><span style="color:${dot}">●</span> ${txt}</span></div>`;
   }).join('');
   const head=`<div class="tb" style="align-items:baseline;gap:.5rem;margin-bottom:.35rem">
       <span style="font-size:1.15rem;font-weight:800;color:${col};letter-spacing:.02em">${stance}</span>
@@ -2295,7 +2296,7 @@ document.body.addEventListener('drop',e=>{ e.preventDefault();
 
 // init
 renderChips(); renderList();
-$('#meta').textContent=`· ${DATA.length} companies · build 2026-09-06 06:05`;
+$('#meta').textContent=`· ${DATA.length} companies · build 2026-09-06 06:32`;
 </script>
 </body>
 </html>
