@@ -131,6 +131,18 @@
   .mtile .mk{ font-size:.6rem; text-transform:uppercase; letter-spacing:.04em; color:var(--sub); }
   .mtile .mv{ font-size:1.15rem; font-weight:800; line-height:1.15; margin-top:.1rem; }
   .mtile .mt{ font-size:.62rem; font-weight:700; margin-top:.1rem; }
+  /* overall-recommendation badge + bulleted drivers (David) */
+  .recwrap{ display:flex; align-items:center; gap:.5rem; flex-wrap:wrap; }
+  .recbadge{ display:inline-flex; align-items:center; padding:.2rem .7rem; border-radius:999px;
+    font-size:.9rem; font-weight:800; letter-spacing:.03em; border:1px solid transparent; }
+  .recpts{ margin:.55rem 0 0; padding-left:1.05rem; }
+  .recpts li{ font-size:.78rem; line-height:1.45; margin:.16rem 0; color:var(--fg); }
+  /* shortfall emphasis for metrics that miss a benchmark (David) */
+  .shortfall{ color:#dc2626 !important; font-weight:800 !important; }
+  .benchpass{ color:#16a34a !important; }
+  .benchnote{ font-size:.6rem; color:var(--sub); font-weight:600; }
+  /* "unavailable" placeholder when a section has no data (David) */
+  .navail{ font-size:.76rem; color:var(--sub); font-style:italic; padding:.15rem 0; }
   /* interactive valuation slider */
   .vsl{ }
   .slhero{ display:flex; align-items:center; justify-content:space-between; gap:.6rem;
@@ -291,6 +303,11 @@
   table.sens thead th{ background:var(--bg); }
   .peerpill{ display:inline-block; font-family:ui-monospace,monospace; font-size:.68rem; padding:2px 8px;
     margin:0 .3rem .3rem 0; border-radius:.4rem; background:var(--peerbg); color:var(--peertx); border:1px solid var(--band); }
+  /* clickable peer pill — navigates to that company (David) */
+  .peerpill.nav{ cursor:pointer; border-color:var(--accent); color:var(--accent);
+    background:var(--card); font-weight:700; -webkit-tap-highlight-color:transparent; }
+  .peerpill.nav:hover{ background:var(--accent); color:#fff; }
+  .peerpill.nav::after{ content:" ›"; opacity:.65; }
   /* header toolbar + toast */
   .htop{ display:flex; align-items:center; gap:.45rem; margin:0 0 .5rem; }
   .htop h1{ margin:0; flex:1 1 auto; min-width:0; }
@@ -633,8 +650,10 @@ function sparkSVG(c){
 }
 
 // multi-year line chart from [{label,key,color}] rows; forecast portion dashed.
-function chLine(c, rows, fmt, maxYears){
-  fmt=fmt||money;
+// opts.zeroBaseline: force the y-axis to include zero and draw an emphasised zero
+// line, so losses/negative figures visibly dip below the baseline (David).
+function chLine(c, rows, fmt, maxYears, opts){
+  fmt=fmt||money; opts=opts||{};
   const yrs=c.yrs, F=ff(c), n=yrs.length;
   const s=(maxYears&&F>maxYears)?(F-maxYears):0;   // focus window: last `maxYears` actual years (+ any forecast tail)
   const got=rows.map((r,i)=>({label:r.label,color:r.color||PALETTE[i%PALETTE.length],a:ser(c,r.key)}))
@@ -655,7 +674,10 @@ function chLine(c, rows, fmt, maxYears){
       plugins:{ legend:{display:!single, position:'bottom'},
         tooltip:{callbacks:{label:x=>x.dataset.label+': '+fmt(x.raw)}} },
       scales:{ x:{grid:{display:false}, ticks:{maxRotation:0, autoSkip:true, autoSkipPadding:14}},
-        y:{grid:{color:GRID}, border:{display:false}, ticks:{callback:v=>fmt(v), maxTicksLimit:5}} } } };
+        y:{ beginAtZero:opts.zeroBaseline?true:false, border:{display:false},
+          grid:{ color:ctx=> (ctx.tick&&ctx.tick.value===0)?'rgba(148,163,184,.9)':GRID,
+                 lineWidth:ctx=> (ctx.tick&&ctx.tick.value===0)?1.4:1 },
+          ticks:{callback:v=>fmt(v), maxTicksLimit:5} } } } };
   return queue(cfg, single?150:180);
 }
 
@@ -1013,6 +1035,21 @@ function sensitivityCard(c){
   const base=dcfPrice(fcff5, wacc, g, cashAdj, shares);
   if(!modelScaleOk(base, cur))
     return card('DCF sensitivity', `<div class="muted" style="font-size:.75rem">DCF output is off-scale versus the current price (financial-statement units under review) — sensitivity grid withheld until inputs are reconciled.</div>`);
+  // David: many grids (e.g. banks) show the SAME value across every WACC × g cell —
+  // because the name's implied price doesn't come from a free-cash-flow DCF at all.
+  // Detect a degenerate/flat grid and withhold it with an honest note rather than a
+  // wall of identical cells that falsely implies the value is insensitive.
+  const cells=m.flat().filter(x=>x!=null&&isFinite(x));
+  if(cells.length){
+    const mn=Math.min(...cells), mx=Math.max(...cells), avg=cells.reduce((a,b)=>a+b,0)/cells.length;
+    const spread=(mx-mn)/(Math.abs(avg)||1);
+    if(spread<0.01){
+      const why=c.sec==='bank'
+        ? 'this name is valued on a dividend-discount / price-to-tangible-book basis, not a free-cash-flow DCF, so the implied price does not respond to WACC or terminal growth'
+        : 'the model does not carry a genuine free-cash-flow forecast for this name, so the implied price does not respond to WACC or terminal growth';
+      return card('DCF sensitivity', `<div class="muted" style="font-size:.75rem;line-height:1.5">A WACC × terminal-growth grid isn't meaningful here — ${why}. See the valuation methods above.</div>`);
+    }
+  }
   const head=`<tr><th>g↓ / WACC→</th>${wOff.map(o=>`<th>${pct2(wacc+o)}</th>`).join('')}</tr>`;
   const body=m.map((row,i)=>`<tr><th>${pct2(g+gOff[i])}</th>${row.map(x=>`<td style="${sensCell(x,cur)}">${x==null?'—':px(x)}</td>`).join('')}</tr>`).join('');
   const tbl=`<div class="tscroll"><table class="sens"><thead>${head}</thead><tbody>${body}</tbody></table></div>`;
@@ -1064,7 +1101,16 @@ function interactiveValuation(c){
   const cashAdj=(di.Cash_lfy||0)+(di.STI_lfy||0)+(di.STD_lfy||0)+(di.LTD_lfy||0);
   const dcfBase=(Array.isArray(f)&&f.length===5&&f.every(x=>x!=null)&&shares&&v.WACC!=null)
     ? dcfPrice(f,v.WACC,(v.TerminalGrowth!=null?v.TerminalGrowth:0.025),cashAdj,shares) : null;
-  if(Array.isArray(f)&&f.length===5&&f.every(x=>x!=null)&&shares&&v.WACC!=null&&modelScaleOk(dcfBase,cur)){
+  // Only offer the WACC/g slider if the DCF actually MOVES with WACC/g. Banks (and
+  // other names with a degenerate FCFF forecast) return the same price at every
+  // WACC/g, so a slider that does nothing is misleading — fall through instead (David).
+  const dcfResponds=(()=>{
+    if(dcfBase==null||!isFinite(dcfBase)) return false;
+    const g0=(v.TerminalGrowth!=null?v.TerminalGrowth:0.025);
+    const alt=dcfPrice(f, v.WACC+0.02, g0, cashAdj, shares);
+    return alt!=null&&isFinite(alt)&&Math.abs(alt-dcfBase)/(Math.abs(dcfBase)||1)>0.01;
+  })();
+  if(Array.isArray(f)&&f.length===5&&f.every(x=>x!=null)&&shares&&v.WACC!=null&&modelScaleOk(dcfBase,cur)&&dcfResponds){
     const w0=v.WACC, g0=(v.TerminalGrowth!=null?v.TerminalGrowth:0.025);
     const iA=rid+'a', iB=rid+'b';
     PENDING_SLIDERS.push({root:rid, cur, inputs:[{id:iA,fmt:v=>pct2(v)},{id:iB,fmt:v=>pct2(v)}],
@@ -1236,6 +1282,17 @@ function renderList(){
 
 // ---------- shared builders ----------
 function kv(k,v){ return `<div class="kv"><div class="k">${k}</div><div class="v">${v}</div></div>`; }
+// David: show a metric against the benchmark it's expected to clear, and flag it
+// (colour/weight) when it falls short. `higherGood` = above the threshold is good;
+// else below. The value turns red/bold on a miss; a small note states the target.
+function benchKv(label, val, fmt, thr, higherGood, thrLabel){
+  if(val==null||!isFinite(val)) return '';
+  if(thr==null||!isFinite(thr)) return kv(label, fmt(val));   // no benchmark → plain tile
+  const pass = higherGood ? (val>=thr) : (val<=thr);
+  const noteCls = pass?'benchpass':'shortfall';
+  const note = `<div class="benchnote ${noteCls}">${pass?'✓':'✗'} target ${higherGood?'≥':'≤'} ${thrLabel}</div>`;
+  return `<div class="kv"><div class="k">${label}</div><div class="v${pass?'':' shortfall'}">${fmt(val)}</div>${note}</div>`;
+}
 // one labelled sub-group of kv tiles; hidden entirely if every tile is empty.
 function kvSection(title, items){ const g=(items||[]).filter(Boolean); return g.length?`<div class="kvsec"><div class="kvh">${title}</div><div class="grid">${g.join('')}</div></div>`:''; }
 // render [[title,[kv,...]],...] as stacked labelled sub-groups.
@@ -1245,6 +1302,11 @@ function card(title,body,right){ if(!body) return ''; return `<div class="card">
 function subhead(txt){ return `<div class="subhead">${txt}</div>`; }
 // emit a titled section only when its body has real content (no orphan headers).
 function section(title, html){ return (html && html.replace(/\s/g,''))?subhead(title)+html:''; }
+// David #312: for an EXPECTED section that has no data for this ticker, don't
+// silently drop it — keep the header and show a short "unavailable" note so every
+// company has the same shape (and the user knows the segment is missing, not lost).
+function navail(msg){ return `<div class="navail">⃠ ${msg||'Not available for this ticker.'}</div>`; }
+function sectionOr(title, html, msg){ return subhead(title)+((html&&html.replace(/\s/g,''))?html:navail(msg)); }
 // collapsible figures block — charts lead, dense number tables tucked behind a tap.
 function foldCard(title,body,right){ if(!body) return ''; return `<details class="fold"><summary><span class="ft">${title}</span>${right?`<span class="r">${right}</span>`:''}<span class="chev">▾</span></summary><div class="fb">${body}</div></details>`; }
 function gridOf(items){ const g=items.filter(Boolean); return g.length?`<div class="grid">${g.join('')}</div>`:''; }
@@ -1460,6 +1522,28 @@ function primaryImplied(c){
     return {implied:md.target_mean, rec:(md.analyst_recommendation?String(md.analyst_recommendation).toUpperCase():null)};
   return null;
 }
+// David: the overall recommendation should consider ALL valuation methods, not
+// just the single most-authoritative one. Gather every same-scale implied fair
+// value the model carries (DCF, EV/EBITDA, REIT blended, analyst consensus) so
+// the verdict is a blend rather than one method's read.
+function allImplied(c){
+  const v=c.va||{}, md=c.md||{}, price=curPrice(c);
+  const out=[];
+  const add=(label,val)=>{ if(val!=null&&isFinite(val)&&val>0&&modelScaleOk(val,price)) out.push({label,val}); };
+  add('Model DCF', v.ImpliedPrice);
+  add('EV/EBITDA', v.ImpliedPriceEVEBITDA);
+  if(isReit(c)&&c.reit) add('REIT blended', c.reit.blended); // already a 7-method blend; median omitted to avoid double-count
+  if(md.target_mean!=null&&isFinite(md.target_mean)&&md.target_mean>0) out.push({label:'Analyst mean', val:md.target_mean});
+  return out;
+}
+// Median across the available methods — robust to a single off method.
+function blendedImplied(c){
+  const arr=allImplied(c); if(!arr.length) return null;
+  const vals=arr.map(x=>x.val).sort((a,b)=>a-b);
+  const m=Math.floor(vals.length/2);
+  const med=vals.length%2?vals[m]:(vals[m-1]+vals[m])/2;
+  return { implied:med, n:arr.length, methods:arr.map(x=>x.label) };
+}
 function verdictCard(c){
   const v=c.va||{}, md=c.md||{};
   const price=curPrice(c);   // authoritative current price; guards against a 0/blank base
@@ -1550,7 +1634,7 @@ function revEarnCard(c){
   const trendRows=isR
     ? [{label:'Revenue',key:'Revenue'},{label:'NPI',key:'NPI'},{label:'Distributable income',key:'DistIncome'}]
     : [{label:'Revenue',key:revKey},{label:'Net income',key:'NetIncome'}];
-  const chart=chLine(c, trendRows, money, 5);   // focus: last 5 actual years
+  const chart=chLine(c, trendRows, money, 5, {zeroBaseline:true});   // focus: last 5 actual years; zero baseline so losses show
   const tiles=toplineTiles(c);
   const body=(chart||'')
     + (figRows?`<div style="margin-top:.5rem">${figRows}</div>`:'')
@@ -1589,9 +1673,11 @@ function tabSummary(c){
     fromHi!=null?(Math.abs(fromHi)<0.005?badge('at 52w high','#d97706'):badge(`${belowHi}% below 52w high`,'#dc2626')):'',
   ].filter(Boolean).join('');
   const rangeLine=(lo52!=null&&hi52!=null)?`<div class="tl" style="margin-top:.2rem;opacity:.8">52-week range · ${px(lo52)} – ${px(hi52)}</div>`:'';
+  // David: dropped the grey "+x% · 52w" fragment next to the price — the range
+  // badges below ("X% above 52w low" / "Y% below 52w high") already say where
+  // price sits over the window, so the bare change % was redundant.
   const priceLine=lc?`<div class="tb" style="align-items:baseline;gap:.5rem;margin-top:.5rem">
         <span class="tv" style="font-size:1.55rem">${px(lc.p)}</span>
-        ${chg!=null?`<span class="ty ${chg>=0?'up':'dn'}" style="font-size:.85rem;font-weight:700">${pctS(chg)} · 52w</span>`:''}
       </div><div class="tl" style="margin-top:.05rem">Latest close · ${lc.d}</div>${rangeBits?`<div class="tl" style="margin-top:.35rem;display:flex;flex-wrap:wrap;gap:.35rem">${rangeBits}</div>`:''}${rangeLine}`:'';
   // consistent header format (David): TICKER · TYPE · COUNTRY, then name.
   // (LFY dropped here — it already leads the Topline snapshot & Key metrics.)
@@ -1609,10 +1695,12 @@ function tabSummary(c){
   // David: one clear recommendation (verdictHeadline folded into overallRecCard);
   // Revenue & earnings now carries the chart + figures + trend% + topline tiles;
   // "Key metrics & financial health" merges the old health + key-metrics cards.
+  // David #312: if a core Summary card has no data, show an explicit "unavailable"
+  // note rather than letting the card vanish — every ticker keeps the same shape.
   return hdr
-    + overallRecCard(c)
-    + revEarnCard(c)
-    + keyMetricsHealthCard(c)
+    + (overallRecCard(c)||card('🎯 Overall recommendation', navail('No model recommendation is available for this ticker.')))
+    + (revEarnCard(c)||card('Revenue & earnings', navail('No revenue / earnings history is carried for this ticker.')))
+    + (keyMetricsHealthCard(c)||card('🩺 Key metrics & financial health', navail('Key metrics & financial-health data are unavailable for this ticker.')))
     + foldCard('Show figures · history', hist);
 }
 
@@ -1726,24 +1814,22 @@ function momentumCard(c){
   const wk=wkSeries(c); if(!wk||wk.length<8) return '';
   const closes=wk.map(p=>p[1]).filter(v=>v!=null&&isFinite(v));
   if(closes.length<8) return '';
-  const cur=closes[closes.length-1];
   const rsi=rsi14(closes);
-  const win=Math.min(50,closes.length), ma=closes.slice(-win).reduce((a,b)=>a+b,0)/win;
-  const vsMA=(ma&&ma>0)?cur/ma-1:null;
   const rsiTag=rsi==null?'':rsi>=70?'overbought':rsi<=30?'oversold':'neutral';
   const rsiCol=rsi==null?'#6b7280':rsi>=70?'#dc2626':rsi<=30?'#16a34a':'#6b7280';
   const mac=macd(closes);
   const macTag=mac?(mac.hist>0?'bullish (above signal)':mac.hist<0?'bearish (below signal)':'flat'):'';
   const macCol=mac?(mac.hist>0?'#16a34a':mac.hist<0?'#dc2626':'#6b7280'):'#6b7280';
   // RSI and MACD shown side by side (David): two tiles in one row.
+  // Label RSI honestly as its 14-period window (was mislabelled with the MA window),
+  // and drop the "vs 50w average" line entirely (David).
   const tile=(lab,val,tag,col)=>`<div class="mtile"><div class="mk">${lab}</div><div class="mv">${val}</div>${tag?`<div class="mt" style="color:${col}">${tag}</div>`:''}</div>`;
   const tiles=[
-    rsi!=null?tile('RSI · '+win+'w',num2(rsi),rsiTag,rsiCol):'',
+    rsi!=null?tile('RSI · 14w',num2(rsi),rsiTag,rsiCol):'',
     mac?tile('MACD · 12/26/9',num2(mac.macd),macTag,macCol):'',
   ].filter(Boolean).join('');
   // 52w high/low distance lives on the Summary tab (range badges) — not repeated here.
-  const extra=gridOf([ vsMA!=null?kv('vs '+win+'w average',pctS(vsMA)):'' ]);
-  const inner=(tiles?`<div class="mrow">${tiles}</div>`:'')+(extra||'');
+  const inner=(tiles?`<div class="mrow">${tiles}</div>`:'');
   if(!inner) return '';
   const note=`<div class="chcap" style="text-align:left;margin-top:.4rem">Momentum from Yahoo weekly closes. RSI &gt; 70 = overbought, &lt; 30 = oversold; MACD above its signal line = bullish. Illustrative — not a trading signal.</div>`;
   return card('📊 Price momentum', inner+note);
@@ -1827,30 +1913,34 @@ function alertsCard(c){
 // David: drop the "Constructive / composite read" framing. Show ONE clear verdict
 // — Buy / Sell / Hold, at what price (the model's fair value + upside vs current),
 // then a single-sentence "why" weaving valuation, health and growth together.
+// David: (1) put the description in point form so it's easier to read; (2) make
+// the recommendation more aesthetic (a coloured pill badge rather than raw text);
+// (3) valuation should consider ALL methods — so the verdict runs off
+// blendedImplied (median of DCF, EV/EBITDA, REIT blend & analyst) with the single
+// most-authoritative fair value as fallback.
 function overallRecCard(c){
-  const price=curPrice(c), pi=primaryImplied(c);
-  const up=(pi&&pi.implied!=null&&price)?upPct(pi.implied,price):null;
+  const price=curPrice(c);
+  const bi=blendedImplied(c), pi=primaryImplied(c);
+  const implied = bi?bi.implied:(pi?pi.implied:null);
+  const up=(implied!=null&&price)?upPct(implied,price):null;
   const hp=healthAggregate(c);
   const rg=(g1(c,'Revenue')!=null?g1(c,'Revenue'):g1(c,'TotalRevenue'));
-  // Verdict comes from the single most-authoritative fair value (same source as the
-  // list pill): the model/analyst rec if present, else derived from upside.
-  const rec=(pi&&pi.rec)?pi.rec:recFromUpside(up);
+  // Prefer a rec derived from the blended upside; fall back to the model/analyst rec.
+  const rec=recFromUpside(up) || (pi&&pi.rec) || null;
   if(!rec && up==null && !hp) return '';
   const col=rec==='BUY'?'#16a34a':rec==='SELL'?'#dc2626':'#d97706';
-  const priceBit=(pi&&pi.implied!=null)
-    ? `<div class="tl" style="margin-top:.18rem">Fair value <b>${px(pi.implied)}</b>${up!=null?` · ${pctSU(up)} vs ${price!=null?px(price):'current'}`:''}</div>`
+  const badge=`<span class="recbadge" style="background:${col}1a;color:${col};border-color:${col}55">${rec||'—'}</span>`;
+  const fvLine=(implied!=null)
+    ? `<div class="tl" style="margin-top:.35rem">Fair value <b>${px(implied)}</b>${up!=null?` · <span style="color:${up>0?'#16a34a':up<0?'#dc2626':'inherit'};font-weight:700">${pctSU(up)}</span> vs ${price!=null?px(price):'current'}`:''}${bi&&bi.n>1?` <span class="muted">· blend of ${bi.n} methods</span>`:''}</div>`
     : '';
-  const parts=[];
-  if(up!=null) parts.push(`${up>0.15?'undervalued':up<-0.15?'overvalued':'fairly valued'} on the model's fair value (${pctSU(up)})`);
-  if(hp) parts.push(`${hp.label} financial health (${Math.round(hp.score*100)}/100)`);
-  if(rg!=null) parts.push(`revenue ${pctS(rg)} y/y`);
-  let why=parts.join(', ').replace(/, ([^,]*)$/, ' and $1');
-  if(why) why=why[0].toUpperCase()+why.slice(1)+'.';
-  const head=`<div class="tb" style="align-items:baseline;gap:.5rem">
-      <span style="font-size:1.35rem;font-weight:800;color:${col};letter-spacing:.02em">${rec||'—'}</span>
-      <span class="muted" style="font-size:.66rem">overall recommendation</span></div>${priceBit}`;
-  const note=`<div class="chcap" style="text-align:left;margin-top:.4rem">${why?why+' ':''}Heuristic synthesis of the model's valuation, health and growth signals — a starting read, not a price target.</div>`;
-  return card('🧭 Overall recommendation', head+note);
+  const pts=[];
+  if(up!=null) pts.push(`${up>0.15?'Undervalued':up<-0.15?'Overvalued':'Fairly valued'} on the model's blended fair value (${pctSU(up)}${bi&&bi.n>1?`, ${bi.n} methods`:''})`);
+  if(hp) pts.push(`${hp.label} financial health (${Math.round(hp.score*100)}/100)`);
+  if(rg!=null) pts.push(`Revenue ${pctS(rg)} year on year`);
+  const ptsHtml=pts.length?`<ul class="recpts">${pts.map(p=>`<li>${p}</li>`).join('')}</ul>`:'';
+  const head=`<div class="recwrap">${badge}<span class="muted" style="font-size:.66rem">overall recommendation</span></div>${fvLine}`;
+  const note=`<div class="chcap" style="text-align:left;margin-top:.5rem">Heuristic synthesis of the model's valuation, health and growth signals — a starting read, not a price target.</div>`;
+  return card('🧭 Overall recommendation', head+ptsHtml+note);
 }
 
 // One-line description that opens the "Intrinsic value · DCF" section, adapting to
@@ -1906,17 +1996,14 @@ function tabValuation(c){
     ]);
     // Market-implied yield / P-NAV / NAV-per-unit / implied cap rate already sit in
     // the Summary "Market & valuation" + "Distributions" groups — not repeated here.
-    // David: lead with the valuation summary, then intrinsic value (methods + live
-    // yield slider together), relative/analyst context, then price & momentum.
-    return subhead('📊 Valuation summary')
-      + fairValueHero(c) + verdictCard(c)
-      + subhead('🧮 Intrinsic value · fair-value methods')
-      + `<div class="secnote">Unit value blended from the model's REIT methods (DDM, cap-rate NAV, P/FFO, target-yield). Drag the target-yield slider to see the implied unit price move.</div>`
-      + mcard + interactiveValuation(c)
-      + subhead('⚖️ Relative & analyst')
-      + analystTargetCard(c)
-      + subhead('📈 Price & momentum')
-      + priceHistoryCard(c) + momentumCard(c)
+    // David: put PRICE first, then the valuation summary, intrinsic value (methods +
+    // live yield slider together), then relative/analyst context.
+    return sectionOr('📈 Price & momentum', priceHistoryCard(c) + momentumCard(c), 'No unit-price history is carried for this REIT.')
+      + sectionOr('📊 Valuation summary', fairValueHero(c) + verdictCard(c), 'No blended fair value is available for this REIT.')
+      + sectionOr('🧮 Intrinsic value · fair-value methods',
+          `<div class="secnote">Unit value blended from the model's REIT methods (DDM, cap-rate NAV, P/FFO, target-yield). Drag the target-yield slider to see the implied unit price move.</div>`
+          + mcard + interactiveValuation(c), 'The REIT valuation methods are unavailable for this ticker.')
+      + sectionOr('⚖️ Relative & analyst', analystTargetCard(c), 'No analyst targets are carried for this REIT.')
       + foldCard('Show figures · assumptions',ass);
   }
   const v=c.va||{};
@@ -1978,19 +2065,16 @@ function tabValuation(c){
   ].filter(Boolean);
   const barChart=chHBars(barItems, px, cur);
   const barCard=barChart?card('Implied price vs current',barChart):'';
-  // David: lead with the valuation summary (fair value + verdict vs current price);
-  // then one "Intrinsic value · DCF" section that combines the description, the live
-  // slider, the sensitivity grid, the implied-vs-current bar and the reverse DCF;
-  // then relative/peer + analyst context; price & momentum last; assumptions folded.
-  return subhead('📊 Valuation summary')
-    + fairValueHero(c) + verdictCard(c)
-    + subhead('🧮 Intrinsic value · DCF')
-    + dcfSectionIntro(c) + dcfUnavailableCard(c)
-    + interactiveValuation(c) + sensitivityCard(c) + barCard + rdcfCard
-    + subhead('⚖️ Relative valuation')
-    + valuationMultiplesCard(c) + analystTargetCard(c)
-    + subhead('📈 Price & momentum')
-    + priceHistoryCard(c) + momentumCard(c)
+  // David: put PRICE first (many foreign names looked "missing" a price segment
+  // because it sat at the very bottom under valuation-first ordering, and their top
+  // valuation cards are often off-scale/empty). So: price & momentum lead, THEN the
+  // valuation summary, intrinsic-value DCF, and relative/peer + analyst context.
+  return sectionOr('📈 Price & momentum', priceHistoryCard(c) + momentumCard(c), 'No price history is carried for this ticker.')
+    + sectionOr('📊 Valuation summary', fairValueHero(c) + verdictCard(c), 'No model fair value is available for this ticker.')
+    + sectionOr('🧮 Intrinsic value · DCF',
+        dcfSectionIntro(c) + dcfUnavailableCard(c) + interactiveValuation(c) + sensitivityCard(c) + barCard + rdcfCard,
+        'A discounted-cash-flow valuation is unavailable for this ticker.')
+    + sectionOr('⚖️ Relative valuation', valuationMultiplesCard(c) + analystTargetCard(c), 'No peer multiples or analyst targets are carried for this ticker.')
     + foldCard('Show figures · DCF assumptions',ass);
 }
 
@@ -2036,23 +2120,117 @@ function techMetricsCard(c){
 // trilogy ROE / ROIC / ROA plus a few sector-appropriate profitability reads —
 // all last-reported-year, straight from carried data.
 function keyMetricsFinCard(c){
-  const L=k=>last(c,k), bank=c.sec==='bank';
+  const L=k=>last(c,k), bank=c.sec==='bank', v=c.va||{};
+  // ROIC's benchmark is the company's own WACC where we carry it (value creation =
+  // ROIC > WACC); otherwise a 10% institutional hurdle. The rest use well-established
+  // institutional thresholds (sector-aware for banks) — the same realism bars the
+  // model applies elsewhere.
+  const wacc=(v.WACC!=null&&isFinite(v.WACC)&&v.WACC>0)?v.WACC:null;
+  const roicThr = wacc!=null?wacc:0.10;
+  const roicLbl = wacc!=null?('WACC '+pct(wacc)):'10%';
   const items=[
-    L('ROE')!=null?kv('ROE',pct(L('ROE'))):'',
-    L('ROIC')!=null?kv('ROIC',pct(L('ROIC'))):'',
-    L('ROA')!=null?kv('ROA',pct(L('ROA'))):'',
+    benchKv('ROE', L('ROE'), pct, bank?0.10:0.12, true, bank?'10%':'12%'),
+    benchKv('ROIC', L('ROIC'), pct, roicThr, true, roicLbl),
+    benchKv('ROA', L('ROA'), pct, bank?0.01:0.05, true, bank?'1%':'5%'),
   ];
   if(bank){
-    items.push(L('NIM')!=null?kv('Net interest margin',pct(L('NIM'))):'');
-    items.push(L('CET1')!=null?kv('CET1 ratio',pct(L('CET1'))):'');
-    items.push(L('EfficiencyRatio')!=null?kv('Efficiency ratio',pct(L('EfficiencyRatio'))):'');
+    items.push(benchKv('Net interest margin', L('NIM'), pct, 0.02, true, '2%'));
+    items.push(benchKv('CET1 ratio', L('CET1'), pct, 0.12, true, '12%'));
+    items.push(benchKv('Efficiency ratio', L('EfficiencyRatio'), pct, 0.55, false, '55%'));
   } else {
-    items.push(L('OpMargin')!=null?kv('Operating margin',pct(L('OpMargin'))):'');
-    items.push(L('NIMargin')!=null?kv('Net margin',pct(L('NIMargin'))):'');
-    items.push(L('GrossMargin')!=null?kv('Gross margin',pct(L('GrossMargin'))):'');
+    items.push(benchKv('Operating margin', L('OpMargin'), pct, 0.10, true, '10%'));
+    items.push(benchKv('Net margin', L('NIMargin'), pct, 0.08, true, '8%'));
+    items.push(benchKv('Gross margin', L('GrossMargin'), pct, 0.30, true, '30%'));
+    // David: a couple more important key metrics up top — leverage & coverage, with
+    // their conventional investment-grade bars.
+    items.push(benchKv('Net debt / EBITDA', L('DebtEBITDA'), mult, 3, false, '3×'));
+    items.push(benchKv('Interest coverage', L('InterestCoverage'), mult, 3, true, '3×'));
   }
   const g=gridOf(items); if(!g) return '';
-  return card('🎯 Key metrics'+(c.lfy?` · FY${c.lfy}`:''), g);
+  const note=`<div class="benchnote" style="margin-top:.4rem">Benchmarks are institutional realism bars (ROIC vs the company's own WACC where available); ✗ marks a metric below its target.</div>`;
+  return card('🎯 Key metrics'+(c.lfy?` · FY${c.lfy}`:''), g+note);
+}
+// David #312: per-company-TYPE unique metrics. Banks/REITs/tech already carry their
+// own dedicated lenses (keyMetricsFinCard bank branch, REIT tabs, techMetricsCard);
+// this adds a compact sector-appropriate KPI strip for the OTHER company types,
+// derived entirely from carried data (no fabricated fields) with realism-bar
+// benchmarks where one is conventional. A short note explains why THESE metrics
+// matter for THIS kind of company.
+function sectorLensCard(c){
+  const sec=(c.sec||'').toLowerCase(), cat=(c.cat||'');
+  if(sec==='bank'||sec==='reit'||sec==='tech') return '';   // covered elsewhere
+  const L=k=>last(c,k), i=li(c), v=c.va||{};
+  const absAt=arr=>{ const x=at(arr,i); return x==null?null:Math.abs(x); };
+  const capexInt=ratioSeries(c,'Capex','Revenue');   // capex is negative → abs
+  const fcfM=ratioSeries(c,'FCFF','Revenue');
+  const rdInt=ratioSeries(c,'RD','Revenue');
+  const wacc=(v.WACC!=null&&isFinite(v.WACC)&&v.WACC>0)?v.WACC:null;
+  const roicVsWacc = wacc!=null
+    ? benchKv('ROIC vs WACC', L('ROIC'), pct, wacc, true, 'WACC '+pct(wacc))
+    : (L('ROIC')!=null?kv('ROIC',pct(L('ROIC'))):'');
+  let title='', items=[], note='';
+  if(sec==='energy'||sec==='materials'){
+    title=sec==='energy'?'🛢️ Energy lens · cash through the cycle':'⛏️ Materials lens · cash through the cycle';
+    items=[
+      benchKv('EBITDA margin', L('EBITDAMargin'), pct, 0.25, true, '25%'),
+      benchKv('Net debt / EBITDA', L('DebtEBITDA'), mult, 2, false, '2×'),
+      capexInt?benchKv('Capex / revenue', absAt(capexInt), pct, 0.25, false, '25%'):'',
+      benchKv('FCF yield', L('FCF_Yield'), pct, 0.05, true, '5%'),
+      benchKv('Shareholder yield', L('ShareholderYield'), pct, 0.03, true, '3%'),
+      roicVsWacc,
+    ];
+    note='Cyclical, capital-intensive names are judged on cash generation through the cycle: EBITDA margin, disciplined gearing, reinvestment intensity (capex/revenue) and cash returned to owners.';
+  } else if(cat==='Insurance'||sec==='insurance'){
+    title='🛡️ Insurance lens · returns on book';
+    items=[
+      benchKv('Return on equity', L('ROE'), pct, 0.12, true, '12%'),
+      benchKv('Return on assets', L('ROA'), pct, 0.01, true, '1%'),
+      L('P_Book')!=null?kv('Price / book', mult(L('P_Book'))):'',
+      L('EquityMultiplier')!=null?kv('Balance-sheet leverage', mult(L('EquityMultiplier'))):'',
+      benchKv('Net margin', L('NIMargin'), pct, 0.08, true, '8%'),
+      g1(c,'Revenue')!=null?kv('Premium growth 1y', pctS(g1(c,'Revenue'))):'',
+    ];
+    note='Insurers are read on the return they earn on their book and how the market prices that book. Underwriting ratios (combined/loss/expense) are not carried in the model, so ROE-vs-cost-of-equity and price-to-book carry the weight.';
+  } else if(sec==='luxury'||cat==='LuxuryGoods'||sec==='retail'||cat==='TradRetail'){
+    const lux=(sec==='luxury'||cat==='LuxuryGoods');
+    title=lux?'💎 Luxury lens · pricing power & returns':'🛒 Retail lens · margins & inventory';
+    items=[
+      benchKv('Gross margin', L('GrossMargin'), pct, lux?0.60:0.30, true, lux?'60%':'30%'),
+      benchKv('Operating margin', L('OpMargin'), pct, lux?0.20:0.08, true, lux?'20%':'8%'),
+      L('DIO')!=null?kv('Inventory days', num2(L('DIO'))):'',
+      L('CCC')!=null?kv('Cash conversion cycle', num2(L('CCC'))+'d'):'',
+      g1(c,'Revenue')!=null?kv('Revenue growth 1y', pctS(g1(c,'Revenue'))):'',
+      roicVsWacc,
+    ];
+    note=lux?'Luxury houses live on brand pricing power (gross margin), operating leverage, working-capital discipline (inventory days) and returns on capital.'
+            :'Retailers turn on thin margins and inventory velocity: gross/operating margin, inventory days and the cash-conversion cycle, plus returns on capital.';
+  } else if(sec==='healthcare'||cat==='Medical'){
+    title='⚕️ Healthcare lens · R&D & cash quality';
+    items=[
+      benchKv('Gross margin', L('GrossMargin'), pct, 0.50, true, '50%'),
+      rdInt?kv('R&D / revenue', pct(absAt(rdInt))):'',
+      fcfM?benchKv('FCF margin', at(fcfM,i), pct, 0.10, true, '10%'):'',
+      benchKv('Operating margin', L('OpMargin'), pct, 0.15, true, '15%'),
+      g1(c,'Revenue')!=null?kv('Revenue growth 1y', pctS(g1(c,'Revenue'))):'',
+      roicVsWacc,
+    ];
+    note='Healthcare/pharma names are assessed on pricing power (gross margin), the intensity and payoff of R&D, and the quality of cash conversion.';
+  } else if(sec==='infra'){
+    title='🏗️ Infrastructure lens · leverage & coverage';
+    items=[
+      benchKv('EBITDA margin', L('EBITDAMargin'), pct, 0.30, true, '30%'),
+      benchKv('Net debt / EBITDA', L('DebtEBITDA'), mult, 4, false, '4×'),
+      benchKv('Interest coverage', L('InterestCoverage'), mult, 3, true, '3×'),
+      capexInt?kv('Capex / revenue', pct(absAt(capexInt))):'',
+      benchKv('FCF yield', L('FCF_Yield'), pct, 0.05, true, '5%'),
+      roicVsWacc,
+    ];
+    note='Infrastructure/transport assets carry heavy long-lived capex and debt: the lens is EBITDA margin, leverage and coverage, reinvestment intensity and returns above the cost of capital.';
+  } else {
+    return '';   // generic corporate — keyMetricsFinCard already covers it
+  }
+  const g=gridOf(items.filter(Boolean)); if(!g) return '';
+  return card(title+(c.lfy?` · FY${c.lfy}`:''), g+`<div class="benchnote" style="margin-top:.4rem">${note}</div>`);
 }
 // Ratio charts + multi-year table, reused by the merged Financials & Ratios tab and
 // the standalone REIT Ratios tab. opts.margins=false drops the margins line (the
@@ -2089,12 +2267,12 @@ function tabFinancials(c){
   // Income → Balance → Cash-flow order, ratios merged in, segment/other last —
   // each behind its own section header.
   const out=[
-    section('🎯 Key metrics & value creation', keyMetricsFinCard(c)+roicWaccCard(c)),
-    section('📈 Performance & quality', tech+charts+alerts),
-    section('🧾 Income statement', inc),
-    section('🏦 Balance sheet', bs),
-    section('💵 Cash flow & capital allocation', capAllocCard(c)+cf),
-    section('📊 Ratios', ratiosBlock(c,{margins:false})+workingCapCard(c)),
+    sectionOr('🎯 Key metrics & value creation', keyMetricsFinCard(c)+sectorLensCard(c)+roicWaccCard(c), 'Return and value-creation metrics are unavailable — the workbook carries no ROE/ROIC/ROA for this ticker.'),
+    sectionOr('📈 Performance & quality', tech+charts+alerts, 'No revenue / margin history is carried for this ticker.'),
+    sectionOr('🧾 Income statement', inc, 'Income-statement detail is unavailable for this ticker.'),
+    sectionOr('🏦 Balance sheet', bs, 'Balance-sheet detail is unavailable for this ticker.'),
+    sectionOr('💵 Cash flow & capital allocation', capAllocCard(c)+cf, 'Cash-flow detail is unavailable for this ticker.'),
+    sectionOr('📊 Ratios', ratiosBlock(c,{margins:false})+workingCapCard(c), 'Ratio history is unavailable for this ticker.'),
     section('🧩 Segment mix', seg),
   ].filter(Boolean).join('');
   return out||'<div class="empty">No statement data.</div>';
@@ -2300,10 +2478,31 @@ function qCard(icon,title,val,accent,extra){
   return `<div class="qcard"${accent?` style="border-left-color:${accent}"`:''}>
     <h4${accent?` style="color:${accent}"`:''}>${icon} ${title}</h4><div class="qbody">${body}</div></div>`;
 }
+// Resolve a peer label (ticker OR company name) to an in-model ticker, so the pill
+// can deep-link to that company (David). Match order: exact ticker, ticker without
+// exchange suffix, exact name, then a loose name contains-match.
+function resolvePeer(s){
+  if(typeof DATA==='undefined'||!Array.isArray(DATA)) return null;
+  const raw=String(s).trim(); if(!raw) return null;
+  const u=raw.toUpperCase(), base=u.split('.')[0];
+  let hit=DATA.find(x=>x&&String(x.t).toUpperCase()===u);
+  if(!hit) hit=DATA.find(x=>x&&String(x.t).toUpperCase().split('.')[0]===base && base.length>=2);
+  if(!hit) hit=DATA.find(x=>x&&x.n&&String(x.n).toUpperCase()===u);
+  if(!hit){
+    const low=raw.toLowerCase();
+    if(low.length>=4) hit=DATA.find(x=>x&&x.n&&String(x.n).toLowerCase().includes(low));
+  }
+  return hit?hit.t:null;
+}
 function peerPills(v){
   const peers=(Array.isArray(v)?v:String(v).split(/[,;]+/)).map(s=>String(s).trim()).filter(Boolean);
   if(!peers.length) return '';
-  return `<div>${peers.map(p=>`<span class="peerpill">${esc(p.toUpperCase())}</span>`).join('')}</div>`;
+  return `<div>${peers.map(p=>{
+    const t=resolvePeer(p);
+    return t
+      ? `<span class="peerpill nav" role="link" tabindex="0" onclick="openDetail('${esc(t)}')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openDetail('${esc(t)}')}" title="Open ${esc(t)}">${esc(p.toUpperCase())}</span>`
+      : `<span class="peerpill">${esc(p.toUpperCase())}</span>`;
+  }).join('')}</div>`;
 }
 function confBadge(sc){
   if(!sc) return '';
@@ -2623,7 +2822,7 @@ document.body.addEventListener('drop',e=>{ e.preventDefault();
 
 // init
 renderChips(); renderList();
-$('#meta').textContent=`· ${DATA.length} companies · build 2026-09-07 02:40`;
+$('#meta').textContent=`· ${DATA.length} companies · build 2026-09-07 12:04`;
 </script>
 </body>
 </html>
