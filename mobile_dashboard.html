@@ -1521,15 +1521,15 @@ function scaleWhy(implied, price, c){
   // v143 — Python nulls a NEGATIVE DCF fair value and tags why. Say it plainly.
   const _v=(c&&c.va)||{};
   if(_v.DCFSuppressed==='negative')
-    return 'free cash flow is negative — a discounted-cash-flow value isn\\'t meaningful here';
+    return 'free cash flow is negative — a discounted-cash-flow value isn\'t meaningful here';
   // v144 — Python also nulls a DCF fair value that lands >10x from the share price
   // and tags the specific cause. Mirror desktop dcfScaleNote wording.
   if(_v.DCFSuppressed==='near_singular')
-    return 'the discount rate sits within ~2% of the perpetual growth rate, so the terminal value blows up — the model output isn\\'t reliable here';
+    return 'the discount rate sits within ~2% of the perpetual growth rate, so the terminal value blows up — the model output isn\'t reliable here';
   if(_v.DCFSuppressed==='corrupt_fcff')
-    return 'the final-year free cash flow breaks sharply from its own trend, distorting the discounted-cash-flow output — so it isn\\'t shown';
+    return 'the final-year free cash flow breaks sharply from its own trend, distorting the discounted-cash-flow output — so it isn\'t shown';
   if(_v.DCFSuppressed==='offscale')
-    return 'the discounted-cash-flow output lands on a different currency/scale than the local share price, so it isn\\'t shown';
+    return 'the discounted-cash-flow output lands on a different currency/scale than the local share price, so it isn\'t shown';
   if(implied==null||!isFinite(implied)||implied<=0||price==null||!isFinite(price)||price<=0)
     return 'awaiting complete model inputs';
   const r=implied/price, f=r<1?Math.round(1/r):Math.round(r);
